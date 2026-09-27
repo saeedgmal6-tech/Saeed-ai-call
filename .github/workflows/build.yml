@@ -2,6 +2,8 @@ name: Android Build
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 jobs:
   build:
@@ -13,6 +15,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
       - uses: android-actions/setup-android@v3
       - name: Install SDK
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
