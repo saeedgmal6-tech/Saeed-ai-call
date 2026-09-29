@@ -7,7 +7,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { WebSocketServer, WebSocket } from 'ws';
 import twilio from 'twilio';
 import { GoogleGenAI, Modality } from '@google/genai';
-import { mulaw } from 'alawmulaw';
+import alawmulaw from 'alawmulaw';
 import { rateLimit } from 'express-rate-limit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +18,7 @@ const app = express();
 const server = http.createServer(app);
 const streams = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });
 const { VoiceResponse } = twilio.twiml;
+const { mulaw } = alawmulaw;
 
 const defaults = {
   phoneNumbers: [],
