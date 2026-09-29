@@ -86,16 +86,14 @@ docker compose up -d --build
 
 ## GitHub
 
+هذا المشروع منشور داخل المستودع العام [Saeed-ai-call](https://github.com/saeedgmal6-tech/Saeed-ai-call/tree/main/server). لتنزيله:
+
 ```sh
-git init
-git add .
-git commit -m "Initial Salim call assistant"
-git branch -M main
-git remote add origin https://github.com/YOUR-USER/salim-call-assistant.git
-git push -u origin main
+git clone https://github.com/saeedgmal6-tech/Saeed-ai-call.git
+cd Saeed-ai-call/server
 ```
 
-تحقق قبل الرفع أن `.env` وبيانات التشغيل غير موجودة في قائمة الملفات. `.gitignore` يستثنيها.
+أنشئ `.env` محليًا من `.env.example` ولا ترفعه إلى GitHub. تأكد من أن `.env` وبيانات التشغيل غير موجودة في قائمة الملفات قبل أي commit.
 
 ## ملاحظات أمن وتشغيل
 
@@ -103,7 +101,7 @@ git push -u origin main
 - واجهة المكالمات تعتمد على Gemini Live؛ تختلف الإتاحة والحدود حسب حساب Google والموديل. الجلسات الحية لها مدة محدودة لدى Gemini؛ راجع وثائق الموديل عند توسيع التشغيل.
 - WhatsApp Cloud API قد يرفض الرسالة إذا لم يكن القالب معتمدًا أو إذا كانت اللغة/رقم الإرسال غير مطابقين.
 - سجل المكالمات المعروض في اللوحة ذاكرة مؤقتة فقط. لا يسجل النظام الصوت ولا يحتفظ بتفريغ المحادثة. اجعل المتصل على علم بأنه يتحدث إلى مساعد إلكتروني، واحصل على موافقته قبل إرسال ملخصه.
-- لم يُنشر المشروع إلى GitHub ولم يُختبر بمكالمة فعلية بعد، لأن مفاتيح الحسابات وعنوان الاستضافة غير متوفرة.
+- نُشر الكود على GitHub. لم تُختبر مكالمة فعلية بعد، لأن مفاتيح الحسابات وعنوان الاستضافة غير متوفرة.
 
 ## المراجع الرسمية
 
