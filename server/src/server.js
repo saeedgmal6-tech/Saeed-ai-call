@@ -49,7 +49,6 @@ function basicAuth(req, res, next) {
     const pass = decoded.slice(decoded.indexOf(':') + 1);
     if (pass.length === expected.length && Buffer.from(pass).equals(Buffer.from(expected))) return next();
   }
-  res.set('WWW-Authenticate', 'Basic realm="Salim Admin", charset="UTF-8"');
   return res.status(401).send('Authentication required');
 }
 function twilioSignatureOk(req, route) {
@@ -82,7 +81,7 @@ app.use('/voice', express.urlencoded({ extended: false, limit: '32kb' }));
 app.use('/api', express.json({ limit: '32kb' }));
 app.use('/api', rateLimit({ windowMs: 60_000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use(express.static(path.join(ROOT, 'public'), { index: false }));
-app.get('/', basicAuth, (_req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
+app.get('/', (_req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 app.get('/health', (_req, res) => res.json({ ok: true, callsEnabled: settings.callsEnabled }));
 app.get('/api/config', basicAuth, (_req, res) => res.json(publicConfig()));
 app.put('/api/config', basicAuth, async (req, res, next) => {
