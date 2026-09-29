@@ -1,0 +1,18 @@
+{
+  "name": "salim-call-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Private, Gemini Live powered Arabic phone assistant with Twilio Voice and WhatsApp alerts.",
+  "scripts": { "start": "node src/server.js", "dev": "node --watch src/server.js" },
+  "engines": { "node": ">=20.11" },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "alawmulaw": "^6.0.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "twilio": "^5.4.0",
+    "ws": "^8.18.0"
+  }
+}
