@@ -40,6 +40,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -523,6 +524,17 @@ class MainActivity : Activity() {
                     }
                 }
 
+                if (totalLength > 0L && partial.length() != totalLength) {
+                    throw IllegalStateException("حجم الملف لا يطابق الحجم المعلن من الخادم: ${partial.length()} من $totalLength بايت.")
+                }
+                val ggufMagic = FileInputStream(partial).use { input ->
+                    ByteArray(4).also { bytes ->
+                        if (input.read(bytes) != 4) throw IllegalStateException("تعذر قراءة ترويسة النموذج.")
+                    }
+                }
+                if (!ggufMagic.contentEquals(byteArrayOf(0x47, 0x47, 0x55, 0x46))) {
+                    throw IllegalStateException("الملف الذي تم تنزيله ليس نموذج GGUF صالحًا؛ أوقفنا التثبيت قبل تشغيل المحرك.")
+                }
                 if (!partial.exists() || partial.length() < 900_000_000L) {
                     throw IllegalStateException("الملف وصل ناقصًا (${partial.length()} بايت). اضغط استكمال التنزيل.")
                 }
@@ -582,6 +594,14 @@ class MainActivity : Activity() {
                 val file = modelFile()
                 if (!file.exists() || file.length() < 900_000_000L) {
                     throw IllegalStateException("ملف النموذج غير مكتمل")
+                }
+                val magic = FileInputStream(file).use { input ->
+                    ByteArray(4).also { bytes ->
+                        if (input.read(bytes) != 4) throw IllegalStateException("تعذر قراءة ترويسة ملف النموذج.")
+                    }
+                }
+                if (!magic.contentEquals(byteArrayOf(0x47, 0x47, 0x55, 0x46))) {
+                    throw IllegalStateException("ملف النموذج تالف أو ليس بصيغة GGUF.")
                 }
                 withContext(Dispatchers.Main) {
                     statusText.text = "جاري تحميل النموذج إلى الذاكرة..."
