@@ -120,3 +120,5 @@ jobs:
 # Rebuild after replacing the model download implementation.
 
 # Rebuild after fixing downloader cleanup.
+
+# Rebuild redesigned premium Arabic UI.
