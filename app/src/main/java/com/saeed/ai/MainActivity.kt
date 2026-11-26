@@ -569,8 +569,13 @@ class MainActivity : Activity() {
                         it is InferenceEngine.State.Initialized || it is InferenceEngine.State.Error
                     }
                 }
-                if (engine.state.value is InferenceEngine.State.Error) {
-                    throw IllegalStateException("فشل تحميل مكتبة تشغيل النموذج")
+                val engineState = engine.state.value
+                if (engineState is InferenceEngine.State.Error) {
+                    val cause = engineState.exception
+                    throw IllegalStateException(
+                        "فشل تهيئة مكتبة التشغيل (${cause.javaClass.simpleName}): ${cause.message ?: "لا توجد تفاصيل"}",
+                        cause
+                    )
                 }
                 val file = modelFile()
                 if (!file.exists() || file.length() < 900_000_000L) {
@@ -590,10 +595,11 @@ class MainActivity : Activity() {
                     showChat()
                     addBubble("assistant", "أنا جاهز. المحرك شغال على موبايلك، ومحادثاتك بتتجهز محليًا.")
                 }
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    statusText.text = "تعذر تشغيل النموذج: ${error.message ?: "خطأ غير معروف"}"
+                    val detail = error.message ?: error.javaClass.simpleName
+                    statusText.text = "تعذر تشغيل النموذج: $detail"
                     Toast.makeText(this@MainActivity, statusText.text, Toast.LENGTH_LONG).show()
                     showEngine()
                 }
