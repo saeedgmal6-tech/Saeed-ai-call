@@ -559,7 +559,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(downloadMonitor)
+        downloadJob?.cancel()
         if (isFinishing && engineCreated) {
             scope.launch(Dispatchers.IO) {
                 try {
