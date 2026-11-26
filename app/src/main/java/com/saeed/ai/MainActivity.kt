@@ -801,7 +801,8 @@ class MainActivity : Activity() {
         if (requestCode == 43 && resultCode == Activity.RESULT_OK) {
             importTextDocument(data)
             return
-        }\n        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
+        }
+        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
                 input.setText(spoken)
