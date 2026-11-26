@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
     private var engineCreated = false
     private var currentTab = "chat"
     private var modelDownloading = false
+    private var onlineSearchNext = false
     private var downloadJob: Job? = null
 
     private val modelName = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
@@ -615,17 +617,27 @@ class MainActivity : Activity() {
             showEngine()
             return
         }
+        val shouldSearch = onlineSearchNext
+        onlineSearchNext = false
         input.setText("")
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(input.windowToken, 0)
         appendHistory("user", prompt)
         addBubble("user", prompt)
         val responseBubble = addBubble("assistant", "")
-        statusText.text = "SAEED AI بيفكر محليًا..."
+        statusText.text = if (shouldSearch) "جاري البحث على الإنترنت ثم تحليل النتائج..." else "SAEED AI بيفكر محليًا..."
         scope.launch(Dispatchers.IO) {
             try {
+                val effectivePrompt = if (shouldSearch) {
+                    val sources = searchWebWithoutKey(prompt)
+                    if (sources.isBlank()) {
+                        "$prompt\n\nملاحظة: لم أتمكن من جلب نتائج بحث موثوقة. أجب اعتمادًا على معرفتك فقط وصرّح بأن البحث لم ينجح."
+                    } else {
+                        "أجب اعتمادًا على نتائج البحث التالية، واذكر عناوين المصادر وروابطها، ولا تخترع تفاصيل.\n\nسؤال المستخدم: $prompt\n\nنتائج البحث:\n$sources"
+                    }
+                } else prompt
                 val response = StringBuilder()
-                engine.sendUserPrompt(prompt, 512).collect { token ->
+                engine.sendUserPrompt(effectivePrompt, 512).collect { token ->
                     response.append(token)
                     withContext(Dispatchers.Main) {
                         responseBubble.text = "SAEED AI\n" + response.toString()
@@ -636,7 +648,7 @@ class MainActivity : Activity() {
                 appendHistory("assistant", answer)
                 withContext(Dispatchers.Main) {
                     responseBubble.text = "SAEED AI\n$answer"
-                    statusText.text = "المحرك المحلي جاهز"
+                    statusText.text = if (shouldSearch) "انتهى البحث • المحرك المحلي جاهز" else "المحرك المحلي جاهز"
                 }
             } catch (error: Exception) {
                 withContext(Dispatchers.Main) {
@@ -645,6 +657,30 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun searchWebWithoutKey(query: String): String {
+        val document = Jsoup.connect("https://html.duckduckgo.com/html/")
+            .data("q", query)
+            .userAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+            .timeout(15_000)
+            .followRedirects(true)
+            .get()
+        val results = document.select(".result").take(5)
+        val output = StringBuilder()
+        for ((index, result) in results.withIndex()) {
+            val link = result.selectFirst(".result__title a")
+            val title = link?.text()?.trim().orEmpty()
+            val href = link?.absUrl("href").orEmpty()
+            val snippet = result.selectFirst(".result__snippet")?.text()?.trim().orEmpty()
+            if (title.isNotBlank() && href.startsWith("http")) {
+                output.append(index + 1).append(". ").append(title)
+                    .append("\n").append(href)
+                if (snippet.isNotBlank()) output.append("\n").append(snippet)
+                output.append("\n\n")
+            }
+        }
+        return output.toString().take(12_000)
     }
 
     private fun appendHistory(role: String, value: String) {
@@ -680,7 +716,13 @@ class MainActivity : Activity() {
             showModelWelcome()
             return
         }
-        body.addView(sectionTitle("المحادثة", "جلسة خاصة • معالجة محلية"))
+        body.addView(sectionTitle("المحادثة", "جلسة محلية مع إمكانية البحث عبر الإنترنت"))
+        body.addView(actionButton(if (onlineSearchNext) "✓ البحث مفعّل للسؤال القادم" else "بحث ويب للسؤال القادم") {
+            onlineSearchNext = !onlineSearchNext
+            showChat()
+            Toast.makeText(this, if (onlineSearchNext) "سيبحث SAEED AI على الإنترنت قبل الإجابة." else "تم إيقاف البحث للسؤال القادم.", Toast.LENGTH_SHORT).show()
+        })
+        addGap(body, 8)
         if (history.length() == 0) {
             val welcome = panel()
             welcome.addView(smallTag("SAEED AI", accent))
