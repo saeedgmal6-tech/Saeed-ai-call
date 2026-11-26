@@ -2,14 +2,11 @@ package com.saeed.ai
 
 import android.Manifest
 import android.app.Activity
-import android.app.DownloadManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
@@ -28,6 +25,7 @@ import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -39,6 +37,9 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -68,16 +69,11 @@ class MainActivity : Activity() {
     private var modelReady = false
     private var engineCreated = false
     private var currentTab = "chat"
-    private var downloadId = -1L
+    private var modelDownloading = false
+    private var downloadJob: Job? = null
 
     private val modelName = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
     private val modelUrl = "https://huggingface.co/tensorblock/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf?download=true"
-
-    private val downloadMonitor = object : Runnable {
-        override fun run() {
-            monitorDownload()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,7 +86,6 @@ class MainActivity : Activity() {
             JSONArray()
         }
         memory = preferences.getString("memory", "") ?: ""
-        downloadId = preferences.getLong("download_id", -1L)
         buildShell()
         showChat()
         inspectModel()
@@ -221,17 +216,21 @@ class MainActivity : Activity() {
             loadLocalModel()
             return
         }
-        if (downloadId > 0L) {
-            handler.post(downloadMonitor)
+        statusText.text = if (modelPartFile().exists() && modelPartFile().length() > 0L) {
+            "يوجد تنزيل سابق غير مكتمل • يمكن استكماله"
         } else {
-            statusText.text = "النموذج جاهز للتنزيل • حوالي 1 جيجابايت • Wi-Fi"
-            if (currentTab == "chat") showModelWelcome()
+            "النموذج جاهز للتنزيل • حوالي 1 جيجابايت • Wi-Fi"
         }
+        if (currentTab == "chat") showModelWelcome()
     }
 
     private fun modelFile(): File {
         val directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
         return File(directory, modelName)
+    }
+
+    private fun modelPartFile(): File {
+        return File(modelFile().parentFile, "$modelName.part")
     }
 
     private fun showModelWelcome() {
@@ -251,66 +250,100 @@ class MainActivity : Activity() {
     }
 
     private fun startModelDownload() {
-        try {
-            val request = DownloadManager.Request(Uri.parse(modelUrl)).apply {
-                setTitle("SAEED AI • تحميل نموذج الذكاء")
-                setDescription("تنزيل نموذج Qwen المحلي — قرابة 1 جيجابايت")
-                setMimeType("application/octet-stream")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
-                setAllowedOverRoaming(false)
-                setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, modelName)
-            }
-            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            downloadId = manager.enqueue(request)
-            preferences.edit().putLong("download_id", downloadId).apply()
-            statusText.text = "بدأ تنزيل النموذج على Wi-Fi"
-            progressBar.visibility = View.VISIBLE
-            handler.removeCallbacks(downloadMonitor)
-            handler.post(downloadMonitor)
-            showEngine()
-        } catch (error: Exception) {
-            statusText.text = "تعذر بدء التنزيل: ${error.message}"
-        }
-    }
+        if (downloadJob?.isActive == true) return
+        val target = modelFile()
+        val partial = modelPartFile()
+        modelDownloading = true
+        progressBar.visibility = View.VISIBLE
+        progressBar.isIndeterminate = false
+        progressBar.progress = 0
+        statusText.text = "جاري الاتصال بمصدر النموذج..."
+        showEngine()
 
-    private fun monitorDownload() {
-        if (downloadId <= 0L) return
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val query = DownloadManager.Query().setFilterById(downloadId)
-        val cursor = manager.query(query)
-        if (cursor == null) return
-        cursor.use {
-            if (!it.moveToFirst()) {
-                handler.postDelayed(downloadMonitor, 1500)
-                return
-            }
-            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-            val downloaded = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-            val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-            if (total > 0L) {
-                val percent = ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
-                progressBar.progress = percent
-                progressBar.visibility = View.VISIBLE
-                statusText.text = "تنزيل النموذج المحلي: $percent%"
-            }
-            when (status) {
-                DownloadManager.STATUS_SUCCESSFUL -> {
-                    handler.removeCallbacks(downloadMonitor)
-                    downloadId = -1L
-                    preferences.edit().remove("download_id").apply()
+        downloadJob = scope.launch(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val existingBytes = if (partial.exists()) partial.length() else 0L
+                connection = (URL(modelUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 30000
+                    readTimeout = 90000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "SAEED-AI-Android/2.0")
+                    setRequestProperty("Accept", "application/octet-stream")
+                    setRequestProperty("Accept-Encoding", "identity")
+                    if (existingBytes > 0L) setRequestProperty("Range", "bytes=$existingBytes-")
+                }
+
+                val responseCode = connection.responseCode
+                val append = existingBytes > 0L && responseCode == HttpURLConnection.HTTP_PARTIAL
+                if (responseCode != HttpURLConnection.HTTP_OK && !append) {
+                    throw IllegalStateException("خادم النموذج رد برمز HTTP $responseCode")
+                }
+                val contentType = connection.contentType ?: ""
+                if (contentType.contains("text/html", ignoreCase = true)) {
+                    throw IllegalStateException("مصدر النموذج أعاد صفحة ويب بدل ملف النموذج")
+                }
+
+                val responseLength = connection.contentLengthLong
+                val totalLength = if (append && responseLength > 0L) existingBytes + responseLength else responseLength
+                if (!append && partial.exists()) partial.delete()
+
+                var lastPercent = -1
+                connection.inputStream.buffered().use { inputStream ->
+                    FileOutputStream(partial, append).buffered().use { outputStream ->
+                        val buffer = ByteArray(256 * 1024)
+                        var downloaded = if (append) existingBytes else 0L
+                        while (true) {
+                            val count = inputStream.read(buffer)
+                            if (count == -1) break
+                            outputStream.write(buffer, 0, count)
+                            downloaded += count
+                            if (totalLength > 0L) {
+                                val percent = ((downloaded * 100L) / totalLength).toInt().coerceIn(0, 100)
+                                if (percent != lastPercent) {
+                                    lastPercent = percent
+                                    withContext(Dispatchers.Main) {
+                                        progressBar.isIndeterminate = false
+                                        progressBar.progress = percent
+                                        statusText.text = "تنزيل النموذج المحلي: $percent%"
+                                    }
+                                }
+                            }
+                        }
+                        outputStream.flush()
+                    }
+                }
+
+                if (!partial.exists() || partial.length() < 900_000_000L) {
+                    throw IllegalStateException("الملف وصل ناقصًا (${partial.length()} بايت). اضغط استكمال التنزيل.")
+                }
+                if (target.exists()) target.delete()
+                if (!partial.renameTo(target)) {
+                    partial.copyTo(target, overwrite = true)
+                    partial.delete()
+                }
+                withContext(Dispatchers.Main) {
+                    modelDownloading = false
+                    downloadJob = null
+                    progressBar.isIndeterminate = false
                     progressBar.progress = 100
-                    statusText.text = "اكتمل التنزيل • جاري تشغيل المحرك"
+                    statusText.text = "اكتمل تنزيل النموذج • جاري تشغيل المحرك"
                     loadLocalModel()
                 }
-                DownloadManager.STATUS_FAILED -> {
-                    val reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                    handler.removeCallbacks(downloadMonitor)
-                    downloadId = -1L
-                    preferences.edit().remove("download_id").apply()
-                    statusText.text = "فشل التنزيل (رمز $reason). جرّب Wi-Fi آخر."
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    modelDownloading = false
+                    downloadJob = null
+                    progressBar.isIndeterminate = false
+                    progressBar.visibility = View.GONE
+                    val detail = error.message ?: "تحقق من اتصال الإنترنت والمساحة المتاحة"
+                    statusText.text = "تعذر التنزيل: $detail"
+                    Toast.makeText(this@MainActivity, statusText.text, Toast.LENGTH_LONG).show()
+                    showEngine()
                 }
-                else -> handler.postDelayed(downloadMonitor, 1200)
+            } finally {
+                connection?.disconnect()
             }
         }
     }
@@ -479,11 +512,12 @@ class MainActivity : Activity() {
         body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foregroundColor, true))
         body.addView(label("الحجم: حوالي 986 ميجابايت. الحد الأدنى المقترح للمساحة الفارغة: 2 جيجابايت.", 13f, gold))
         body.addView(label("الحالة: ${if (modelReady) "يعمل" else "غير محمّل"}", 14f, if (modelReady) accent else gold, true))
-        if (!modelFile().exists() && downloadId <= 0L) {
-            body.addView(actionButton("تحميل النموذج الآن") { startModelDownload() })
-        } else if (downloadId > 0L) {
-            body.addView(actionButton("متابعة حالة التنزيل") { monitorDownload() })
-        } else if (modelFile().exists() && !modelReady) {
+        if (modelDownloading) {
+            body.addView(actionButton("التنزيل شغال...") { })
+        } else if (!modelFile().exists()) {
+            val buttonText = if (modelPartFile().exists() && modelPartFile().length() > 0L) "استكمال تنزيل النموذج" else "تحميل النموذج الآن"
+            body.addView(actionButton(buttonText) { startModelDownload() })
+        } else if (!modelReady) {
             body.addView(actionButton("تشغيل النموذج") { loadLocalModel() })
         }
         body.addView(actionButton("العودة للمحادثة") { showChat() })
