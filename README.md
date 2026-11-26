@@ -1,38 +1,45 @@
 # SAEED AI
 
-SAEED AI is a clean Android-first personal-assistant project. This repository was rebuilt from a new branch after removing the previous call-screening prototype and companion server files.
+SAEED AI is an Arabic-first Android client for a privately operated, open-weight language model. The Android app does not call Gemini, OpenAI, or another hosted AI provider and does not require an AI-provider API key.
 
-## Current foundation
+## Current Android foundation
 
-- Arabic-first Android application UI.
-- Text chat interface.
-- Gemini API connector (user supplies their own API key).
-- Local conversation history and editable personal memory.
+- Arabic-first chat UI.
+- Conversation history and editable memory stored locally in app-private storage.
 - Arabic speech input through the Android speech-recognition service.
 - Arabic text-to-speech through Android TTS.
-- A small, explicit set of on-device actions: open YouTube, open WhatsApp, open Android settings, and clear local chat history.
-- GitHub Actions debug APK build.
+- Explicit phone actions: open YouTube, open WhatsApp, open Android settings, and clear local chat history.
+- Configurable private server address and model name.
+- Chat Completions-compatible connection to a self-hosted endpoint such as Ollama or llama.cpp server at `/v1/chat/completions`.
+- No Authorization header or AI API key is sent.
 
-## Important scope and limitations
+## Important: the model server is not included yet
 
-This is the first clean foundation, not a complete ChatGPT-equivalent assistant yet. It does not currently include an embedded on-device LLM, web search, image/file understanding, autonomous multi-step task planning, accessibility-based UI automation, live call audio processing, translation overlays, or an always-on wake-word service.
+This Android project is a client, not a magically provisioned server. It does not contain the language model weights and it does not create compute capacity. To get AI responses, a compatible self-hosted model server must already be running on hardware you control and reachable from the phone. Example model name shown in the app: `qwen2.5:3b`; the exact model must be installed on your server.
 
-Gemini API access requires a valid API key and is subject to Google's current account eligibility, quotas, model availability, and pricing. The app does not ship with a shared API key. Chat history, memory, and the API key are stored in the app's private SharedPreferences; the key is not separately encrypted by this initial build. Prompts sent to Gemini leave the device and are processed by Google.
+No server address is preconfigured. Until a private server is actually provisioned and tested, the app cannot provide generative AI responses. A zero-cost, always-on, powerful private server cannot be assumed to exist. A small free local model is a different, weaker architecture.
 
-Android permission and background-execution rules remain in force. The app does not silently monitor the microphone or phone calls.
+## Connection and privacy
+
+Set the server Base URL in app settings, for example `http://192.168.1.10:11434` for an Ollama server on the same trusted Wi-Fi network. The app appends `/v1/chat/completions` unless that path is already present. Use only a trusted private network or a properly secured private VPN/tunnel. Plain HTTP on a shared or untrusted network can expose prompts and responses in transit.
+
+Conversation history and memory remain in app-private local storage. Message content is sent only to the server address configured by the user. Android speech recognition may be provided by a device-installed recognition service; this app does not promise offline speech recognition. Android TTS is used for spoken replies.
+
+## Current limitations
+
+This is an initial Android client foundation, not a ChatGPT-equivalent autonomous assistant. It does not yet include bundled on-device inference, web research, image/file understanding, multi-step agent planning, accessibility-based UI automation, call audio processing, translation overlays, wake-word listening, or a provisioned private model server. Android permission and background-execution restrictions still apply; there is no unrestricted or silent control of the phone.
 
 ## Build
 
-GitHub Actions builds app/build/outputs/apk/debug/app-debug.apk on pushes to saeed-ai-rebuild.
+GitHub Actions builds `app/build/outputs/apk/debug/app-debug.apk` on pushes to `saeed-ai-rebuild`.
 
-Debug application ID: com.saeed.ai.debug.
+Debug application ID: `com.saeed.ai.debug`.
 
-## Planned engineering stages
+## Next engineering stages
 
-1. Validate the Android foundation and APK on the target OPPO device.
-2. Add a secure provider layer and configurable model routing.
-3. Add on-device model download/runtime after benchmarking memory and thermal limits.
-4. Add grounded web search and file/image workflows.
-5. Add permission-gated Android actions with confirmations, audit log, and rollback where possible.
-6. Add optional translation and call-related features only where Android and carrier APIs permit them.
-7. Add tests, release signing, privacy controls, and a documented update path.
+1. Build and validate the Android client APK.
+2. Provision a private model server on available user-controlled hardware and install a suitable open-weight model.
+3. Connect the phone over a private network/VPN and verify inference end to end.
+4. Add grounded web search and image/file workflows without external AI-provider APIs.
+5. Add permission-gated Android actions, confirmations, audit log, and tests.
+6. Benchmark model quality, latency, memory, thermal load, and server uptime before claiming capability.
