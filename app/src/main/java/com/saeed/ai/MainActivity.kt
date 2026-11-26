@@ -2,6 +2,7 @@ package com.saeed.ai
 
 import android.Manifest
 import android.app.Activity
+import android.app.SearchManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -319,7 +320,79 @@ class MainActivity : Activity() {
             body.addView(card)
             addGap(body, 8)
         }
-        body.addView(label("ملاحظة: النسخة الحالية نواة محلية أولى. البحث المباشر، فهم الصور والملفات، والتحكم في الهاتف ما زالت وحدات تطوير منفصلة.", 11f, gold))
+        body.addView(sectionTitle("أدوات سريعة", "وظائف حقيقية متاحة من أندرويد"))
+        val toolsCard = panel()
+        toolsCard.addView(label("بحث على الويب", 15f, foregroundColor, true))
+        toolsCard.addView(label("يفتح تطبيق البحث أو المتصفح بنتائج مباشرة. النتائج لا تُدمج تلقائيًا في المحادثة المحلية حتى الآن.", 11f, secondary))
+        addGap(toolsCard, 8)
+        toolsCard.addView(actionButton("فتح البحث على الويب") { openWebSearch() })
+        addGap(toolsCard, 12)
+        toolsCard.addView(label("استيراد ملف نصي", 15f, foregroundColor, true))
+        toolsCard.addView(label("استيراد TXT أو Markdown وإضافته إلى ذاكرتك المحلية كسياق للمحادثات.", 11f, secondary))
+        addGap(toolsCard, 8)
+        toolsCard.addView(actionButton("اختيار ملف نصي") { openTextDocument() })
+        body.addView(toolsCard)
+        addGap(body, 10)
+        body.addView(label("تحليل PDF وWord والصور، والبحث المدمج في ردود المساعد، والتحكم الآلي في الهاتف ما زالت تحتاج وحدات مستقلة.", 11f, gold))
+    }
+
+
+    private fun openWebSearch() {
+        val query = input.text.toString().trim()
+        if (query.isBlank()) {
+            Toast.makeText(this, "اكتب موضوع البحث في خانة المحادثة أولًا.", Toast.LENGTH_LONG).show()
+            showChat()
+            input.requestFocus()
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
+                putExtra(SearchManager.QUERY, query)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            val encoded = android.net.Uri.encode(query)
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=$encoded")))
+        }
+    }
+
+    private fun openTextDocument() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "text/markdown", "text/x-markdown"))
+        }
+        try {
+            startActivityForResult(intent, 43)
+        } catch (_: Exception) {
+            Toast.makeText(this, "متعذر فتح مدير الملفات على الجهاز.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importTextDocument(data: Intent?) {
+        val uri = data?.data ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val imported = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                    val buffer = CharArray(200_001)
+                    val count = it.read(buffer, 0, buffer.size)
+                    String(buffer, 0, if (count < 0) 0 else count)
+                }.orEmpty()
+                if (imported.isBlank()) throw IllegalStateException("الملف فارغ أو لا يحتوي على نص قابل للقراءة.")
+                val name = uri.lastPathSegment?.substringAfterLast('/')?.take(80) ?: "مستند مستورد"
+                val addition = "\n\n[محتوى ملف: $name]\n$imported"
+                withContext(Dispatchers.Main) {
+                    memory = (memory + addition).takeLast(100_000)
+                    preferences.edit().putString("memory", memory).apply()
+                    Toast.makeText(this@MainActivity, "تم استيراد النص إلى الذاكرة المحلية.", Toast.LENGTH_LONG).show()
+                    showMemory()
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "تعذر استيراد الملف: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun showSettings() {
@@ -725,7 +798,7 @@ class MainActivity : Activity() {
     @Deprecated("Legacy Android activity result API remains supported")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
+        if (requestCode == 43 && resultCode == Activity.RESULT_OK) {\n            importTextDocument(data)\n            return\n        }\n        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
                 input.setText(spoken)
