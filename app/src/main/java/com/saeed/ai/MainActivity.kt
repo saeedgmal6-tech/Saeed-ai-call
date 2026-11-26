@@ -2,70 +2,112 @@ package com.saeed.ai
 
 import android.Manifest
 import android.app.Activity
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
-import android.content.Context
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.arm.aichat.AiChat
+import com.arm.aichat.InferenceEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.File
 import java.util.Locale
-import java.util.concurrent.Executors
 
-class MainActivity : Activity(), TextToSpeech.OnInitListener {
+class MainActivity : Activity() {
 
-    private val bg = Color.rgb(10, 16, 24)
-    private val panel = Color.rgb(20, 30, 43)
-    private val accent = Color.rgb(85, 214, 194)
-    private val white = Color.rgb(239, 245, 250)
-    private val muted = Color.rgb(151, 168, 184)
-    private val prefs by lazy { getSharedPreferences("saeed_ai_private", MODE_PRIVATE) }
-    private val worker = Executors.newSingleThreadExecutor()
-    private lateinit var tts: TextToSpeech
+    private val background = Color.rgb(8, 13, 22)
+    private val surface = Color.rgb(18, 27, 42)
+    private val surfaceLight = Color.rgb(26, 39, 57)
+    private val accent = Color.rgb(70, 226, 197)
+    private val gold = Color.rgb(224, 184, 105)
+    private val foreground = Color.rgb(240, 245, 250)
+    private val secondary = Color.rgb(151, 168, 186)
+    private val preferences by lazy { getSharedPreferences("saeed_ai_local", MODE_PRIVATE) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val handler = Handler(Looper.getMainLooper())
+
     private lateinit var root: LinearLayout
-    private lateinit var content: LinearLayout
+    private lateinit var body: LinearLayout
     private lateinit var scroll: ScrollView
+    private lateinit var composer: LinearLayout
     private lateinit var input: EditText
-    private lateinit var status: TextView
-    private var currentTab = "chat"
+    private lateinit var statusText: TextView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var engine: InferenceEngine
+
     private var history = JSONArray()
     private var memory = ""
+    private var modelReady = false
+    private var engineCreated = false
+    private var currentTab = "chat"
+    private var downloadId = -1L
+
+    private val modelName = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+    private val modelUrl = "https://huggingface.co/tensorblock/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf?download=true"
+
+    private val downloadMonitor = object : Runnable {
+        override fun run() {
+            monitorDownload()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg
-        window.navigationBarColor = bg
-        tts = TextToSpeech(this, this)
-        history = try { JSONArray(prefs.getString("history", "[]")) } catch (_: Exception) { JSONArray() }
-        memory = prefs.getString("memory", "") ?: ""
-        showShell()
+        window.statusBarColor = background
+        window.navigationBarColor = background
+        window.decorView.systemUiVisibility = 0
+        history = try {
+            JSONArray(preferences.getString("history", "[]"))
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        memory = preferences.getString("memory", "") ?: ""
+        downloadId = preferences.getLong("download_id", -1L)
+        buildShell()
         showChat()
-    }
-
-    override fun onInit(result: Int) {
-        if (result == TextToSpeech.SUCCESS) tts.language = Locale("ar", "EG")
+        inspectModel()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun text(value: String, size: Float = 15f, color: Int = white, bold: Boolean = false): TextView {
+    private fun rounded(color: Int, radius: Int = 18): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+        }
+    }
+
+    private fun label(value: String, size: Float = 14f, color: Int = foreground, bold: Boolean = false): TextView {
         return TextView(this).apply {
-            this.text = value
+            text = value
             textSize = size
             setTextColor(color)
             if (bold) setTypeface(typeface, Typeface.BOLD)
@@ -75,144 +117,283 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun button(label: String, action: () -> Unit): Button {
-        return Button(this).apply {
-            text = label
-            textSize = 13f
-            isAllCaps = false
-            setTextColor(white)
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(panel))
-            setOnClickListener { action() }
+    private fun actionButton(value: String, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = value
+            textSize = 14f
+            setTextColor(if (value.contains("تحميل")) background else foreground)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(if (value.contains("تحميل")) accent else surfaceLight, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setOnClickListener { onClick() }
         }
     }
 
-    private fun showShell() {
+    private fun buildShell() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(bg)
-            setPadding(dp(16), dp(12), dp(16), dp(8))
+            setBackgroundColor(background)
+            setPadding(dp(16), dp(10), dp(16), dp(8))
         }
+
         val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, dp(12))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(5), 0, dp(12))
         }
-        header.addView(text("SAEED AI", 25f, accent, true))
-        header.addView(text("مساعدك الشخصي الذكي", 13f, muted))
-        status = text("جاهز • في انتظار عنوان خادمك الخاص", 11f, muted)
-        header.addView(status)
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        brand.addView(label("SAEED AI", 25f, accent, true))
+        brand.addView(label("PRIVATE INTELLIGENCE • ON-DEVICE", 9f, secondary, true))
+        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(actionButton("⚙") { showSettings() }, LinearLayout.LayoutParams(dp(48), dp(46)))
         root.addView(header)
-        val divider = View(this).apply { setBackgroundColor(panel) }
-        root.addView(divider, LinearLayout.LayoutParams(-1, dp(1)))
-        scroll = ScrollView(this)
-        content = LinearLayout(this).apply {
+
+        statusText = label("المحرك المحلي غير محمّل", 12f, gold)
+        root.addView(statusText)
+
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(surfaceLight)
+            visibility = View.GONE
+        }
+        root.addView(progressBar, LinearLayout.LayoutParams(-1, dp(4)))
+
+        scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
+        body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(12), 0, dp(12))
         }
-        scroll.addView(content)
+        scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        composer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val voice = actionButton("🎙") { startVoiceInput() }
+        composer.addView(voice, LinearLayout.LayoutParams(dp(48), dp(52)))
         input = EditText(this).apply {
             hint = "اكتب رسالتك إلى SAEED AI..."
             textSize = 15f
-            setTextColor(white)
-            setHintTextColor(muted)
-            setSingleLine(false)
+            setTextColor(foreground)
+            setHintTextColor(secondary)
             maxLines = 4
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent))
+            minLines = 1
+            gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
             textDirection = View.TEXT_DIRECTION_RTL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = rounded(surface, 16)
         }
-        val composer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        composer.addView(button("🎙") { startVoiceInput() }, LinearLayout.LayoutParams(dp(54), dp(54)))
-        composer.addView(input, LinearLayout.LayoutParams(0, dp(54), 1f))
-        composer.addView(button("إرسال") { sendMessage() }, LinearLayout.LayoutParams(dp(76), dp(54)))
+        val inputParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+        inputParams.setMargins(dp(8), 0, dp(8), 0)
+        composer.addView(input, inputParams)
+        composer.addView(actionButton("➤") { sendMessage() }, LinearLayout.LayoutParams(dp(52), dp(52)))
         root.addView(composer)
-        val nav = LinearLayout(this).apply {
+
+        val navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(6), 0, 0)
         }
-        nav.addView(button("المحادثة") { showChat() }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        nav.addView(button("الذاكرة") { showMemory() }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        nav.addView(button("الإعدادات") { showSettings() }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        root.addView(nav)
+        navigation.addView(actionButton("المحادثة") { showChat() }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        navigation.addView(actionButton("الذاكرة") { showMemory() }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        navigation.addView(actionButton("المحرك") { showEngine() }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        root.addView(navigation)
         setContentView(root)
     }
 
-    private fun resetContent() {
-        content.removeAllViews()
-        input.visibility = if (currentTab == "chat") View.VISIBLE else View.GONE
-        root.getChildAt(root.childCount - 2).visibility = if (currentTab == "chat") View.VISIBLE else View.GONE
+    private fun inspectModel() {
+        val file = modelFile()
+        if (file.exists() && file.length() > 900_000_000L) {
+            loadLocalModel()
+            return
+        }
+        if (downloadId > 0L) {
+            handler.post(downloadMonitor)
+        } else {
+            statusText.text = "النموذج جاهز للتنزيل • حوالي 1 جيجابايت • Wi-Fi"
+            if (currentTab == "chat") showModelWelcome()
+        }
     }
 
-    private fun showChat() {
-        currentTab = "chat"
-        resetContent()
-        content.addView(text("أهلاً بيك. أنا SAEED AI.", 20f, white, true))
-        content.addView(text("اكتب سؤالك أو استخدم الميكروفون. الذكاء هيشتغل من خلال نموذج مفتوح المصدر على خادمك الخاص، من غير مفاتيح Google أو OpenAI. لازم الخادم يكون متاحًا على الشبكة.", 14f, muted))
-        for (i in 0 until history.length()) {
-            val item = history.optJSONObject(i) ?: continue
-            addBubble(item.optString("role"), item.optString("text"))
-        }
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+    private fun modelFile(): File {
+        val directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+        return File(directory, modelName)
     }
 
-    private fun addBubble(role: String, message: String) {
-        val isUser = role == "user"
-        val bubble = TextView(this).apply {
-            text = (if (isUser) "أنت\n" else "SAEED AI\n") + message
-            textSize = 15f
-            setTextColor(white)
-            textDirection = View.TEXT_DIRECTION_RTL
-            gravity = Gravity.RIGHT
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            setBackgroundColor(if (isUser) Color.rgb(29, 65, 72) else panel)
+    private fun showModelWelcome() {
+        body.removeAllViews()
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(surface, 24)
+            setPadding(dp(18), dp(20), dp(18), dp(20))
         }
-        val params = LinearLayout.LayoutParams(-1, -2)
-        params.setMargins(0, dp(5), 0, dp(5))
-        content.addView(bubble, params)
+        hero.addView(label("ذكاء اصطناعي خاص بيك.", 23f, foreground, true))
+        hero.addView(label("مش مجرد واجهة شات. المحرك هيشتغل محليًا على موبايلك، من غير مفاتيح API أو إرسال محادثاتك لمزود ذكاء اصطناعي.", 14f, secondary))
+        hero.addView(label("الموديل: Qwen 1.5B Instruct • Q4_K_M", 12f, accent, true))
+        hero.addView(label("حجم التنزيل قرابة 986 ميجابايت. التنزيل مضبوط على Wi-Fi لتجنب استهلاك باقة الموبايل.", 12f, gold))
+        hero.addView(actionButton("تحميل النموذج الآن") { startModelDownload() })
+        body.addView(hero)
+        body.addView(label("بعد اكتمال التنزيل، التطبيق هيحمّل النموذج ويجهز المحادثة تلقائيًا.", 13f, secondary))
+    }
+
+    private fun startModelDownload() {
+        try {
+            val request = DownloadManager.Request(Uri.parse(modelUrl)).apply {
+                setTitle("SAEED AI • تحميل نموذج الذكاء")
+                setDescription("تنزيل نموذج Qwen المحلي — قرابة 1 جيجابايت")
+                setMimeType("application/octet-stream")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
+                setAllowedOverRoaming(false)
+                setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, modelName)
+            }
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            downloadId = manager.enqueue(request)
+            preferences.edit().putLong("download_id", downloadId).apply()
+            statusText.text = "بدأ تنزيل النموذج على Wi-Fi"
+            progressBar.visibility = View.VISIBLE
+            handler.removeCallbacks(downloadMonitor)
+            handler.post(downloadMonitor)
+            showEngine()
+        } catch (error: Exception) {
+            statusText.text = "تعذر بدء التنزيل: ${error.message}"
+        }
+    }
+
+    private fun monitorDownload() {
+        if (downloadId <= 0L) return
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        val cursor = manager.query(query)
+        if (cursor == null) return
+        cursor.use {
+            if (!it.moveToFirst()) {
+                handler.postDelayed(downloadMonitor, 1500)
+                return
+            }
+            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val downloaded = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+            val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+            if (total > 0L) {
+                val percent = ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                progressBar.progress = percent
+                progressBar.visibility = View.VISIBLE
+                statusText.text = "تنزيل النموذج المحلي: $percent%"
+            }
+            when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    handler.removeCallbacks(downloadMonitor)
+                    downloadId = -1L
+                    preferences.edit().remove("download_id").apply()
+                    progressBar.progress = 100
+                    statusText.text = "اكتمل التنزيل • جاري تشغيل المحرك"
+                    loadLocalModel()
+                }
+                DownloadManager.STATUS_FAILED -> {
+                    val reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                    handler.removeCallbacks(downloadMonitor)
+                    downloadId = -1L
+                    preferences.edit().remove("download_id").apply()
+                    statusText.text = "فشل التنزيل (رمز $reason). جرّب Wi-Fi آخر."
+                }
+                else -> handler.postDelayed(downloadMonitor, 1200)
+            }
+        }
+    }
+
+    private fun loadLocalModel() {
+        if (modelReady) return
+        statusText.text = "جاري تهيئة محرك الذكاء المحلي..."
+        progressBar.visibility = View.VISIBLE
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (!engineCreated) {
+                    engine = AiChat.getInferenceEngine(applicationContext)
+                    engineCreated = true
+                }
+                withTimeout(120_000L) {
+                    engine.state.first {
+                        it is InferenceEngine.State.Initialized || it is InferenceEngine.State.Error
+                    }
+                }
+                if (engine.state.value is InferenceEngine.State.Error) {
+                    throw IllegalStateException("فشل تحميل مكتبة تشغيل النموذج")
+                }
+                val file = modelFile()
+                if (!file.exists() || file.length() < 900_000_000L) {
+                    throw IllegalStateException("ملف النموذج غير مكتمل")
+                }
+                withContext(Dispatchers.Main) {
+                    statusText.text = "جاري تحميل النموذج إلى الذاكرة..."
+                }
+                engine.loadModel(file.absolutePath)
+                engine.setSystemPrompt(
+                    "أنت SAEED AI، مساعد شخصي ذكي باللغة العربية. تحدث باللهجة المصرية الطبيعية عندما يناسب السياق. كن دقيقًا وصريحًا ولا تدّع تنفيذ أفعال لم تنفذها. لا تخترع معلومات أو مصادر. إذا لم تعرف فقل ذلك. اهتم بالشرح المنظم والتحليل والكتابة والبرمجة. ذاكرة المستخدم التي يجب مراعاتها: $memory"
+                )
+                modelReady = true
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    statusText.text = "المحرك المحلي يعمل • Qwen 1.5B"
+                    showChat()
+                    addBubble("assistant", "أنا جاهز. المحرك شغال على موبايلك، ومحادثاتك بتتجهز محليًا.")
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    statusText.text = "تعذر تشغيل النموذج: ${error.message ?: "خطأ غير معروف"}"
+                    Toast.makeText(this@MainActivity, statusText.text, Toast.LENGTH_LONG).show()
+                    showEngine()
+                }
+            }
+        }
     }
 
     private fun sendMessage() {
-        val message = input.text.toString().trim()
-        if (message.isEmpty()) return
+        val prompt = input.text.toString().trim()
+        if (prompt.isEmpty()) return
+        if (!modelReady) {
+            Toast.makeText(this, "حمّل النموذج المحلي أولًا من تبويب المحرك.", Toast.LENGTH_LONG).show()
+            showEngine()
+            return
+        }
         input.setText("")
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(input.windowToken, 0)
-        appendHistory("user", message)
-        addBubble("user", message)
-        val local = handleLocalCommand(message)
-        if (local != null) {
-            appendHistory("model", local)
-            addBubble("model", local)
-            speak(local)
-            return
-        }
-        val serverUrl = prefs.getString("server_url", "") ?: ""
-        val model = prefs.getString("model", "qwen2.5:3b") ?: "qwen2.5:3b"
-        if (serverUrl.isBlank()) {
-            val answer = "لسه عنوان الخادم الخاص مش متحدد. افتح الإعدادات واكتب عنوان خادم SAEED AI اللي عليه النموذج المفتوح المصدر. مفيش أي مفتاح API مطلوب."
-            appendHistory("model", answer)
-            addBubble("model", answer)
-            status.text = "الخادم غير مضبوط • أدخل عنوانه من الإعدادات"
-            return
-        }
-        status.text = "جاري الاتصال بالخادم الخاص..."
-        val loading = text("SAEED AI بيجهز الرد من خادمك الخاص...", 13f, accent)
-        content.addView(loading)
-        worker.execute {
-            val answer = try { askPrivateServer(serverUrl, model, message) } catch (e: Exception) {
-                "تعذر الاتصال بالخادم الخاص: " + (e.message ?: "خطأ غير معروف") + "\nراجع العنوان وتأكد إن الخادم شغال ويمكن الوصول له من الهاتف."
-            }
-            runOnUiThread {
-                content.removeView(loading)
-                appendHistory("model", answer)
-                addBubble("model", answer)
-                status.text = if (answer.startsWith("تعذر الاتصال")) "الخادم غير متصل" else "متصل بالخادم الخاص"
-                speak(answer)
-                scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        appendHistory("user", prompt)
+        addBubble("user", prompt)
+        val responseBubble = addBubble("assistant", "")
+        statusText.text = "SAEED AI بيفكر محليًا..."
+        scope.launch(Dispatchers.IO) {
+            try {
+                val response = StringBuilder()
+                engine.sendUserPrompt(prompt, 512).collect { token ->
+                    response.append(token)
+                    withContext(Dispatchers.Main) {
+                        responseBubble.text = "SAEED AI\n" + response.toString()
+                        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+                    }
+                }
+                val answer = response.toString().ifBlank { "النموذج لم يُرجع نصًا. جرّب صياغة السؤال مرة أخرى." }
+                appendHistory("assistant", answer)
+                withContext(Dispatchers.Main) {
+                    responseBubble.text = "SAEED AI\n$answer"
+                    statusText.text = "المحرك المحلي جاهز"
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    responseBubble.text = "تعذر توليد الرد: ${error.message ?: "خطأ في المحرك"}"
+                    statusText.text = "حدث خطأ أثناء الاستدلال المحلي"
+                }
             }
         }
     }
@@ -220,74 +401,89 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun appendHistory(role: String, value: String) {
         history.put(JSONObject().put("role", role).put("text", value))
         while (history.length() > 60) history.remove(0)
-        prefs.edit().putString("history", history.toString()).apply()
+        preferences.edit().putString("history", history.toString()).apply()
     }
 
-    private fun askPrivateServer(serverAddress: String, model: String, prompt: String): String {
-        val base = serverAddress.trim().trimEnd('/')
-        val endpoint = if (base.endsWith("/v1/chat/completions")) base else "$base/v1/chat/completions"
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 15000
-            readTimeout = 120000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+    private fun addBubble(role: String, value: String): TextView {
+        val user = role == "user"
+        val bubble = TextView(this).apply {
+            text = (if (user) "أنت" else "SAEED AI") + if (value.isBlank()) "" else "\n$value"
+            textSize = 15f
+            setTextColor(foreground)
+            textDirection = View.TEXT_DIRECTION_RTL
+            gravity = Gravity.RIGHT
+            setPadding(dp(15), dp(12), dp(15), dp(12))
+            background = rounded(if (user) Color.rgb(22, 65, 70) else surface, 18)
         }
-        val messages = JSONArray()
-        val system = "أنت SAEED AI، مساعد شخصي عملي. تحدث باللهجة المصرية الواضحة ما لم يطلب المستخدم غير ذلك. كن دقيقًا، لا تدّع تنفيذ إجراء لم تنفذه، وصرّح بحدود معرفتك. الذاكرة الشخصية المتاحة: $memory"
-        messages.put(JSONObject().put("role", "system").put("content", system))
-        val start = maxOf(0, history.length() - 16)
-        for (i in start until history.length()) {
+        val params = LinearLayout.LayoutParams(-1, -2)
+        params.setMargins(0, dp(5), 0, dp(5))
+        body.addView(bubble, params)
+        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        return bubble
+    }
+
+    private fun showChat() {
+        currentTab = "chat"
+        body.removeAllViews()
+        composer.visibility = View.VISIBLE
+        if (!modelReady) {
+            showModelWelcome()
+            return
+        }
+        body.addView(label("مساحة المحادثة الخاصة", 20f, foreground, true))
+        for (i in 0 until history.length()) {
             val item = history.optJSONObject(i) ?: continue
-            val role = if (item.optString("role") == "user") "user" else "assistant"
-            messages.put(JSONObject().put("role", role).put("content", item.optString("text")))
+            addBubble(item.optString("role"), item.optString("text"))
         }
-        if (history.length() == 0 || history.optJSONObject(history.length() - 1)?.optString("text") != prompt) {
-            messages.put(JSONObject().put("role", "user").put("content", prompt))
+        if (history.length() == 0) {
+            body.addView(label("اسألني، اكتب فكرة، اطلب تحليلًا أو مساعدة في البرمجة. الاستدلال يتم على الجهاز بعد تحميل النموذج.", 14f, secondary))
         }
-        val body = JSONObject()
-            .put("model", model)
-            .put("messages", messages)
-            .put("temperature", 0.7)
-            .put("max_tokens", 2048)
-        connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        val code = connection.responseCode
-        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-        val response = stream.bufferedReader().use { it.readText() }
-        connection.disconnect()
-        if (code !in 200..299) throw IllegalStateException("HTTP $code: " + response.take(500))
-        val json = JSONObject(response)
-        return json.getJSONArray("choices").getJSONObject(0)
-            .getJSONObject("message").getString("content")
     }
 
-    private fun handleLocalCommand(raw: String): String? {
-        val q = raw.trim().lowercase(Locale("ar", "EG"))
-        if (q in listOf("افتح يوتيوب", "افتح اليوتيوب", "youtube")) {
-            openApp("com.google.android.youtube", "https://youtube.com")
-            return "بحاول أفتح يوتيوب."
+    private fun showMemory() {
+        currentTab = "memory"
+        body.removeAllViews()
+        composer.visibility = View.GONE
+        body.addView(label("الذاكرة الشخصية", 22f, foreground, true))
+        body.addView(label("المعلومات التي تكتبها هنا تُحفظ على الهاتف وتدخل في تعليمات المحرك عند تحميله.", 13f, secondary))
+        val editor = EditText(this).apply {
+            setText(memory)
+            minLines = 8
+            gravity = Gravity.TOP or Gravity.RIGHT
+            textDirection = View.TEXT_DIRECTION_RTL
+            setTextColor(foreground)
+            setHintTextColor(secondary)
+            hint = "تفضيلاتك ومعلوماتك المهمة..."
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(surface, 16)
         }
-        if (q in listOf("افتح واتساب", "افتح الواتس", "whatsapp")) {
-            openApp("com.whatsapp", "https://whatsapp.com")
-            return "بحاول أفتح واتساب."
-        }
-        if (q in listOf("افتح الإعدادات", "افتح الاعدادات", "settings")) {
-            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-            return "فتحت إعدادات الهاتف."
-        }
-        if (q == "امسح المحادثة" || q == "امسح سجل المحادثة") {
-            history = JSONArray()
-            prefs.edit().putString("history", "[]").apply()
-            content.removeAllViews()
-            return "تم مسح سجل المحادثة المحفوظ داخل التطبيق."
-        }
-        return null
+        body.addView(editor, LinearLayout.LayoutParams(-1, dp(230)))
+        body.addView(actionButton("حفظ الذاكرة") {
+            memory = editor.text.toString()
+            preferences.edit().putString("memory", memory).apply()
+            Toast.makeText(this, "اتحفظت الذاكرة على الجهاز. أعد تحميل النموذج لتطبيق التغييرات.", Toast.LENGTH_LONG).show()
+        })
     }
 
-    private fun openApp(packageName: String, fallback: String) {
-        val launch = packageManager.getLaunchIntentForPackage(packageName)
-        if (launch != null) startActivity(launch)
-        else startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback)))
+    private fun showEngine() {
+        currentTab = "engine"
+        body.removeAllViews()
+        composer.visibility = View.GONE
+        body.addView(label("مركز المحرك المحلي", 22f, foreground, true))
+        body.addView(label("كل عمليات توليد النص تتم على الهاتف بعد تنزيل ملف النموذج. لا يوجد عنوان خادم ولا مفتاح API.", 14f, secondary))
+        body.addView(label("النموذج الحالي", 14f, accent, true))
+        body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foreground, true))
+        body.addView(label("الحجم: حوالي 986 ميجابايت. الحد الأدنى المقترح للمساحة الفارغة: 2 جيجابايت.", 13f, gold))
+        body.addView(label("الحالة: ${if (modelReady) "يعمل" else "غير محمّل"}", 14f, if (modelReady) accent else gold, true))
+        if (!modelFile().exists() && downloadId <= 0L) {
+            body.addView(actionButton("تحميل النموذج الآن") { startModelDownload() })
+        } else if (downloadId > 0L) {
+            body.addView(actionButton("متابعة حالة التنزيل") { monitorDownload() })
+        } else if (modelFile().exists() && !modelReady) {
+            body.addView(actionButton("تشغيل النموذج") { loadLocalModel() })
+        }
+        body.addView(actionButton("العودة للمحادثة") { showChat() })
+        body.addView(label("تنبيه: هذا إصدار أولي بمحرك محلي واحد. ليس دمجًا لكل نماذج ChatGPT ولا يملك تلقائيًا البحث المباشر أو تحليل الصور والملفات أو التحكم الكامل بالنظام. هذه القدرات تحتاج وحدات منفصلة سنضيفها ونختبرها.", 12f, secondary))
     }
 
     private fun startVoiceInput() {
@@ -303,7 +499,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
             startActivityForResult(intent, 42)
         } catch (_: Exception) {
-            Toast.makeText(this, "خدمة التعرف على الكلام غير متاحة على الجهاز.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "خدمة تحويل الكلام إلى نص غير متاحة.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -324,107 +520,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (requestCode == 41 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startVoiceInput()
     }
 
-    private fun speak(value: String) {
-        if (::tts.isInitialized) tts.speak(value, TextToSpeech.QUEUE_FLUSH, null, "saeed-ai-response")
-    }
-
-    private fun showMemory() {
-        currentTab = "memory"
-        resetContent()
-        content.addView(text("ذاكرة SAEED AI", 21f, white, true))
-        content.addView(text("اكتب المعلومات التي تريد من المساعد تذكرها. تُحفظ محليًا على الهاتف وتُضاف إلى سياق المحادثة مع نموذجك الخاص.", 13f, muted))
-        val editor = EditText(this).apply {
-            setText(memory)
-            minLines = 8
-            gravity = Gravity.TOP or Gravity.RIGHT
-            textDirection = View.TEXT_DIRECTION_RTL
-            setTextColor(white)
-            setHintTextColor(muted)
-            hint = "تفضيلاتك، معلومات وملاحظات مهمة..."
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setBackgroundColor(panel)
-        }
-        content.addView(editor, LinearLayout.LayoutParams(-1, dp(220)))
-        content.addView(button("حفظ الذاكرة") {
-            memory = editor.text.toString()
-            prefs.edit().putString("memory", memory).apply()
-            Toast.makeText(this, "تم حفظ الذاكرة على الهاتف.", Toast.LENGTH_SHORT).show()
-        })
-        content.addView(button("مسح الذاكرة") {
-            memory = ""
-            editor.setText("")
-            prefs.edit().remove("memory").apply()
-            Toast.makeText(this, "تم مسح الذاكرة المحلية.", Toast.LENGTH_SHORT).show()
-        })
-    }
-
-    private fun showSettings() {
-        currentTab = "settings"
-        resetContent()
-        content.addView(text("إعدادات الخادم الخاص", 21f, white, true))
-        content.addView(text("التطبيق يتصل بخادم تملكه أو تستضيفه أنت ويشغّل نموذجًا مفتوح المصدر. لا توجد مفاتيح API ولا اتصال بمزود ذكاء اصطناعي خارجي. عنوان الخادم وحده مطلوب.", 13f, muted))
-        content.addView(text("عنوان الخادم (Base URL)", 14f, accent, true))
-        val serverField = EditText(this).apply {
-            setText(prefs.getString("server_url", ""))
-            hint = "مثال: http://192.168.1.10:11434"
-            inputType = 17
-            setTextColor(white)
-            setHintTextColor(muted)
-            textDirection = View.TEXT_DIRECTION_LTR
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundColor(panel)
-        }
-        content.addView(serverField, LinearLayout.LayoutParams(-1, dp(54)))
-        content.addView(text("اسم النموذج على الخادم", 14f, accent, true))
-        val modelField = EditText(this).apply {
-            setText(prefs.getString("model", "qwen2.5:3b"))
-            hint = "مثال: qwen2.5:3b"
-            setTextColor(white)
-            setHintTextColor(muted)
-            textDirection = View.TEXT_DIRECTION_LTR
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            setBackgroundColor(panel)
-        }
-        content.addView(modelField, LinearLayout.LayoutParams(-1, dp(54)))
-        content.addView(button("حفظ إعدادات الخادم") {
-            val address = serverField.text.toString().trim().trimEnd('/')
-            prefs.edit()
-                .putString("server_url", address)
-                .putString("model", modelField.text.toString().trim().ifBlank { "qwen2.5:3b" })
-                .remove("api_key")
-                .apply()
-            status.text = if (address.isBlank()) "أدخل عنوان الخادم الخاص" else "تم حفظ عنوان الخادم الخاص"
-            Toast.makeText(this, "تم حفظ الإعدادات على الهاتف. لا يوجد مفتاح API.", Toast.LENGTH_SHORT).show()
-        })
-        content.addView(button("اختبار اتصال الخادم") {
-            val address = serverField.text.toString().trim()
-            val model = modelField.text.toString().trim().ifBlank { "qwen2.5:3b" }
-            if (address.isBlank()) {
-                Toast.makeText(this, "اكتب عنوان الخادم أولًا.", Toast.LENGTH_SHORT).show()
-            } else {
-                status.text = "جاري اختبار الخادم الخاص..."
-                worker.execute {
-                    val result = try {
-                        val answer = askPrivateServer(address, model, "رد بكلمة واحدة: متصل")
-                        "نجح الاتصال بالنموذج: " + answer.take(100)
-                    } catch (e: Exception) {
-                        "فشل الاتصال: " + (e.message ?: "خطأ")
-                    }
-                    runOnUiThread {
-                        status.text = result
-                        Toast.makeText(this, result, Toast.LENGTH_LONG).show()
-                    }
+    override fun onDestroy() {
+        handler.removeCallbacks(downloadMonitor)
+        if (isFinishing && engineCreated) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    engine.destroy()
+                } catch (_: Exception) {
                 }
             }
-        })
-        content.addView(text("واجهة الاتصال متوافقة مع OpenAI Chat Completions API محليًا فقط؛ مثل Ollama أو llama.cpp server عند تشغيل واجهة /v1/chat/completions. لا يتم إرسال Authorization أو أي مفتاح. لا تضع عنوان خادم عام غير موثوق، ويفضل استخدام شبكة خاصة أو VPN.", 12f, muted))
-        content.addView(text("الصوت: إدخال الكلام يعتمد على خدمة التعرف المثبتة في الهاتف، والإجابة الصوتية تعتمد على Android TTS. لا يوجد استماع دائم في الخلفية.", 12f, muted))
-        content.addView(text("الذاكرة وسجل الدردشة محفوظان محليًا داخل التطبيق. محتوى الرسائل ينتقل فقط إلى عنوان الخادم الذي تحدده.", 12f, muted))
-    }
-
-    override fun onDestroy() {
-        if (::tts.isInitialized) tts.shutdown()
-        worker.shutdown()
+        }
+        scope.cancel()
         super.onDestroy()
     }
 }
