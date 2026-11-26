@@ -1,4 +1,5 @@
 name: SAEED AI On-Device Android Build
+# Rebuild after Kotlin UI compile fixes
 
 on:
   push:
