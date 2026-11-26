@@ -72,8 +72,8 @@ class MainActivity : Activity() {
     private var modelDownloading = false
     private var downloadJob: Job? = null
 
-    private val modelName = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
-    private val modelUrl = "https://huggingface.co/tensorblock/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf?download=true"
+    private val modelName = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    private val modelUrl = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -243,7 +243,7 @@ class MainActivity : Activity() {
         hero.addView(label("ذكاء اصطناعي خاص بيك.", 23f, foregroundColor, true))
         hero.addView(label("مش مجرد واجهة شات. المحرك هيشتغل محليًا على موبايلك، من غير مفاتيح API أو إرسال محادثاتك لمزود ذكاء اصطناعي.", 14f, secondary))
         hero.addView(label("الموديل: Qwen 1.5B Instruct • Q4_K_M", 12f, accent, true))
-        hero.addView(label("حجم التنزيل قرابة 986 ميجابايت. التنزيل مضبوط على Wi-Fi لتجنب استهلاك باقة الموبايل.", 12f, gold))
+        hero.addView(label("حجم التنزيل قرابة 1.12 جيجابايت. التنزيل مضبوط على Wi-Fi لتجنب استهلاك باقة الموبايل.", 12f, gold))
         hero.addView(actionButton("تحميل النموذج الآن") { startModelDownload() })
         body.addView(hero)
         body.addView(label("بعد اكتمال التنزيل، التطبيق هيحمّل النموذج ويجهز المحادثة تلقائيًا.", 13f, secondary))
@@ -510,7 +510,7 @@ class MainActivity : Activity() {
         body.addView(label("كل عمليات توليد النص تتم على الهاتف بعد تنزيل ملف النموذج. لا يوجد عنوان خادم ولا مفتاح API.", 14f, secondary))
         body.addView(label("النموذج الحالي", 14f, accent, true))
         body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foregroundColor, true))
-        body.addView(label("الحجم: حوالي 986 ميجابايت. الحد الأدنى المقترح للمساحة الفارغة: 2 جيجابايت.", 13f, gold))
+        body.addView(label("الحجم: حوالي 1.12 جيجابايت. الحد الأدنى المقترح للمساحة الفارغة: 3 جيجابايت.", 13f, gold))
         body.addView(label("الحالة: ${if (modelReady) "يعمل" else "غير محمّل"}", 14f, if (modelReady) accent else gold, true))
         if (modelDownloading) {
             body.addView(actionButton("التنزيل شغال...") { })
