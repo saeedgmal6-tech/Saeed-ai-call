@@ -87,7 +87,7 @@ class MainActivity : Activity() {
         }
         memory = preferences.getString("memory", "") ?: ""
         buildShell()
-        showChat()
+        showHome()
         inspectModel()
     }
 
@@ -125,29 +125,99 @@ class MainActivity : Activity() {
         }
     }
 
+
+    private fun sectionTitle(value: String, subtitle: String = ""): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(2), dp(12), dp(2), dp(8))
+            addView(label(value, 19f, foregroundColor, true))
+            if (subtitle.isNotBlank()) addView(label(subtitle, 12f, secondary))
+        }
+    }
+
+    private fun panel(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(surface, 22)
+            setPadding(dp(16), dp(15), dp(16), dp(15))
+        }
+    }
+
+    private fun smallTag(value: String, color: Int = accent): TextView {
+        return TextView(this).apply {
+            text = value
+            textSize = 10f
+            setTextColor(color)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = rounded(Color.argb(30, Color.red(color), Color.green(color), Color.blue(color)), 20)
+        }
+    }
+
+    private fun addGap(parent: LinearLayout, height: Int = 10) {
+        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
+    }
+
+    private fun navItem(title: String, icon: String, selected: Boolean, onClick: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = rounded(if (selected) Color.rgb(25, 55, 60) else Color.TRANSPARENT, 16)
+            setPadding(dp(8), dp(7), dp(8), dp(7))
+            addView(TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) accent else secondary)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) accent else secondary)
+                setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
+            })
+            setOnClickListener { onClick() }
+        }
+    }
+
+
     private fun buildShell() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(backgroundColor)
-            setPadding(dp(16), dp(10), dp(16), dp(8))
+            setPadding(dp(18), dp(8), dp(18), dp(8))
         }
-
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(5), 0, dp(12))
+            setPadding(0, dp(6), 0, dp(12))
         }
-        val brand = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        brand.addView(label("SAEED AI", 25f, accent, true))
-        brand.addView(label("PRIVATE INTELLIGENCE • ON-DEVICE", 9f, secondary, true))
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(label("SAEED AI", 23f, accent, true))
+        brand.addView(label("PERSONAL INTELLIGENCE", 9f, secondary, true))
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(actionButton("⚙") { showSettings() }, LinearLayout.LayoutParams(dp(48), dp(46)))
+        header.addView(TextView(this).apply {
+            text = "S"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(backgroundColor)
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(accent, 18)
+        }, LinearLayout.LayoutParams(dp(42), dp(42)))
         root.addView(header)
 
-        statusText = label("المحرك المحلي غير محمّل", 12f, gold)
-        root.addView(statusText)
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(Color.rgb(16, 34, 43), 14)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        statusText = label("المحرك المحلي غير محمّل", 11f, gold, true)
+        statusRow.addView(statusText, LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(smallTag("PRIVATE", accent))
+        root.addView(statusRow)
 
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -156,15 +226,15 @@ class MainActivity : Activity() {
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(surfaceLight)
             visibility = View.GONE
         }
-        root.addView(progressBar, LinearLayout.LayoutParams(-1, dp(4)))
-
+        root.addView(progressBar, LinearLayout.LayoutParams(-1, dp(3)))
         scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
+            overScrollMode = View.OVER_SCROLL_NEVER
         }
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, dp(12))
+            setPadding(0, dp(12), 0, dp(18))
         }
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -172,38 +242,84 @@ class MainActivity : Activity() {
         composer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(6), 0, dp(6))
+            setPadding(0, dp(8), 0, dp(8))
         }
-        val voice = actionButton("🎙") { startVoiceInput() }
-        composer.addView(voice, LinearLayout.LayoutParams(dp(48), dp(52)))
+        composer.addView(actionButton("🎙") { startVoiceInput() }, LinearLayout.LayoutParams(dp(48), dp(50)))
         input = EditText(this).apply {
-            hint = "اكتب رسالتك إلى SAEED AI..."
-            textSize = 15f
+            hint = "اكتب لـ SAEED AI..."
+            textSize = 14f
             setTextColor(foregroundColor)
             setHintTextColor(secondary)
             maxLines = 4
             minLines = 1
             gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
             textDirection = View.TEXT_DIRECTION_RTL
-            setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = rounded(surface, 16)
+            setPadding(dp(15), dp(8), dp(15), dp(8))
+            background = rounded(surface, 18)
         }
-        val inputParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+        val inputParams = LinearLayout.LayoutParams(0, dp(50), 1f)
         inputParams.setMargins(dp(8), 0, dp(8), 0)
         composer.addView(input, inputParams)
-        composer.addView(actionButton("➤") { sendMessage() }, LinearLayout.LayoutParams(dp(52), dp(52)))
+        composer.addView(actionButton("➤") { sendMessage() }, LinearLayout.LayoutParams(dp(50), dp(50)))
         root.addView(composer)
 
         val navigation = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
+            background = rounded(Color.rgb(13, 21, 34), 20)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
         }
-        navigation.addView(actionButton("المحادثة") { showChat() }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        navigation.addView(actionButton("الذاكرة") { showMemory() }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        navigation.addView(actionButton("المحرك") { showEngine() }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        navigation.addView(navItem("الرئيسية", "⌂", currentTab == "home") { showHome() }, LinearLayout.LayoutParams(0, dp(54), 1f))
+        navigation.addView(navItem("المحادثة", "✦", currentTab == "chat") { showChat() }, LinearLayout.LayoutParams(0, dp(54), 1f))
+        navigation.addView(navItem("الذاكرة", "◈", currentTab == "memory") { showMemory() }, LinearLayout.LayoutParams(0, dp(54), 1f))
+        navigation.addView(navItem("المحرك", "⚙", currentTab == "engine") { showEngine() }, LinearLayout.LayoutParams(0, dp(54), 1f))
         root.addView(navigation)
         setContentView(root)
+    }
+
+
+    private fun showHome() {
+        currentTab = "home"
+        body.removeAllViews()
+        composer.visibility = View.GONE
+        body.addView(sectionTitle("مساحة SAEED AI", "مساعدك الشخصي • خصوصية أولًا"))
+        val hero = panel()
+        hero.addView(smallTag("PERSONAL INTELLIGENCE SYSTEM", accent))
+        addGap(hero, 12)
+        hero.addView(label("كل أفكارك تبدأ\nمن هنا.", 27f, foregroundColor, true))
+        hero.addView(label("محادثة، ذاكرة، ومحركات قابلة للتوسّع في مكان واحد.", 13f, secondary))
+        addGap(hero, 12)
+        hero.addView(actionButton(if (modelReady) "افتح المحادثة" else "إعداد المحرك المحلي") {
+            if (modelReady) showChat() else showEngine()
+        })
+        body.addView(hero)
+        addGap(body, 14)
+        body.addView(sectionTitle("الوصول السريع", "المكونات الأساسية المتاحة حاليًا"))
+        val cards = listOf(
+            Triple("المحادثة الذكية", "اسأل واكتب بالنموذج المحلي", "✦"),
+            Triple("الذاكرة الشخصية", "تحكم في المعلومات المحفوظة", "◈"),
+            Triple("إدارة المحرك", "تنزيل النموذج وتشغيله", "⚙")
+        )
+        for ((title, description, symbol) in cards) {
+            val card = panel()
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(label(symbol, 22f, accent, true), LinearLayout.LayoutParams(dp(42), -2))
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            texts.addView(label(title, 15f, foregroundColor, true))
+            texts.addView(label(description, 11f, secondary))
+            row.addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
+            card.addView(row)
+            card.setOnClickListener {
+                when (title) {
+                    "المحادثة الذكية" -> showChat()
+                    "الذاكرة الشخصية" -> showMemory()
+                    else -> showEngine()
+                }
+            }
+            body.addView(card)
+            addGap(body, 8)
+        }
+        body.addView(label("ملاحظة: النسخة الحالية نواة محلية أولى. البحث المباشر، فهم الصور والملفات، والتحكم في الهاتف ما زالت وحدات تطوير منفصلة.", 11f, gold))
     }
 
     private fun showSettings() {
@@ -233,20 +349,37 @@ class MainActivity : Activity() {
         return File(modelFile().parentFile, "$modelName.part")
     }
 
+
     private fun showModelWelcome() {
         body.removeAllViews()
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(surface, 24)
-            setPadding(dp(18), dp(20), dp(18), dp(20))
-        }
-        hero.addView(label("ذكاء اصطناعي خاص بيك.", 23f, foregroundColor, true))
-        hero.addView(label("مش مجرد واجهة شات. المحرك هيشتغل محليًا على موبايلك، من غير مفاتيح API أو إرسال محادثاتك لمزود ذكاء اصطناعي.", 14f, secondary))
-        hero.addView(label("الموديل: Qwen 1.5B Instruct • Q4_K_M", 12f, accent, true))
-        hero.addView(label("حجم التنزيل قرابة 1.12 جيجابايت. التنزيل مضبوط على Wi-Fi لتجنب استهلاك باقة الموبايل.", 12f, gold))
-        hero.addView(actionButton("تحميل النموذج الآن") { startModelDownload() })
+        val hero = panel()
+        hero.addView(smallTag("YOUR PRIVATE AI", accent))
+        addGap(hero, 12)
+        hero.addView(label("ذكاء اصطناعي\nعلى مقاسك.", 29f, foregroundColor, true))
+        hero.addView(label("مساحة واحدة لأفكارك وأسئلتك ومهامك. ابدأ بالمحرك المحلي، ثم نوسّع قدرات SAEED AI بوحدات مستقلة.", 14f, secondary))
+        addGap(hero, 14)
+        val modelLine = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        modelLine.addView(label("Qwen 1.5B • محلي", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
+        modelLine.addView(smallTag("1.12 GB", gold))
+        hero.addView(modelLine)
+        addGap(hero, 14)
+        hero.addView(actionButton("تحميل المحرك المحلي") { startModelDownload() })
         body.addView(hero)
-        body.addView(label("بعد اكتمال التنزيل، التطبيق هيحمّل النموذج ويجهز المحادثة تلقائيًا.", 13f, secondary))
+        addGap(body, 14)
+        body.addView(sectionTitle("مساحة العمل", "الأدوات المتاحة في هذه النسخة"))
+        val features = listOf(
+            "محادثة محلية" to "توليد النصوص على الجهاز بعد تحميل النموذج",
+            "ذاكرة شخصية" to "حفظ تفضيلاتك ومعلوماتك محليًا",
+            "إدخال صوتي" to "إملاء السؤال باللغة العربية"
+        )
+        for ((title, description) in features) {
+            val item = panel()
+            item.addView(label(title, 15f, foregroundColor, true))
+            item.addView(label(description, 12f, secondary))
+            body.addView(item)
+            addGap(body, 8)
+        }
+        body.addView(label("البحث المباشر، تحليل الصور والملفات، وتنفيذ أوامر الهاتف وحدات غير مفعلة بعد؛ لن نعرضها كأنها تعمل قبل تنفيذها واختبارها.", 11f, gold))
     }
 
     private fun startModelDownload() {
@@ -459,6 +592,7 @@ class MainActivity : Activity() {
         return bubble
     }
 
+
     private fun showChat() {
         currentTab = "chat"
         body.removeAllViews()
@@ -467,61 +601,108 @@ class MainActivity : Activity() {
             showModelWelcome()
             return
         }
-        body.addView(label("مساحة المحادثة الخاصة", 20f, foregroundColor, true))
-        for (i in 0 until history.length()) {
-            val item = history.optJSONObject(i) ?: continue
-            addBubble(item.optString("role"), item.optString("text"))
-        }
+        body.addView(sectionTitle("المحادثة", "جلسة خاصة • معالجة محلية"))
         if (history.length() == 0) {
-            body.addView(label("اسألني، اكتب فكرة، اطلب تحليلًا أو مساعدة في البرمجة. الاستدلال يتم على الجهاز بعد تحميل النموذج.", 14f, secondary))
+            val welcome = panel()
+            welcome.addView(smallTag("SAEED AI", accent))
+            addGap(welcome, 8)
+            welcome.addView(label("أهلًا بيك.\nتحب نبدأ بإيه؟", 24f, foregroundColor, true))
+            welcome.addView(label("اسأل سؤال، اطلب شرح، أو ابدأ في كتابة فكرة. هكون واضح معاك في حدود قدراتي.", 13f, secondary))
+            body.addView(welcome)
+            addGap(body, 12)
+            for (suggestion in listOf("اشرحلي موضوع معقد ببساطة", "ساعدني أكتب خطة عمل", "راجعلي كود برمجي")) {
+                body.addView(actionButton(suggestion) {
+                    input.setText(suggestion)
+                    input.setSelection(input.text.length)
+                })
+                addGap(body, 6)
+            }
+        } else {
+            for (i in 0 until history.length()) {
+                val item = history.optJSONObject(i) ?: continue
+                addBubble(item.optString("role"), item.optString("text"))
+            }
         }
     }
+
 
     private fun showMemory() {
         currentTab = "memory"
         body.removeAllViews()
         composer.visibility = View.GONE
-        body.addView(label("الذاكرة الشخصية", 22f, foregroundColor, true))
-        body.addView(label("المعلومات التي تكتبها هنا تُحفظ على الهاتف وتدخل في تعليمات المحرك عند تحميله.", 13f, secondary))
+        body.addView(sectionTitle("الذاكرة الشخصية", "بياناتك محفوظة محليًا على هذا الجهاز"))
+        val info = panel()
+        info.addView(smallTag("ON-DEVICE STORAGE", accent))
+        info.addView(label("SAEED AI بيتعلم تفضيلاتك من المعلومات اللي تختار حفظها هنا.", 14f, foregroundColor, true))
+        info.addView(label("ما تكتبش كلمات مرور أو بيانات شديدة الحساسية. الذاكرة الحالية محفوظة في مساحة التطبيق الخاصة.", 12f, secondary))
+        body.addView(info)
+        addGap(body, 12)
         val editor = EditText(this).apply {
             setText(memory)
-            minLines = 8
+            minLines = 9
             gravity = Gravity.TOP or Gravity.RIGHT
             textDirection = View.TEXT_DIRECTION_RTL
             setTextColor(foregroundColor)
             setHintTextColor(secondary)
-            hint = "تفضيلاتك ومعلوماتك المهمة..."
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            background = rounded(surface, 16)
+            hint = "اكتب تفضيلاتك وطريقة الرد المفضلة ومعلومات تساعد المساعد..."
+            textSize = 14f
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = rounded(surface, 18)
         }
-        body.addView(editor, LinearLayout.LayoutParams(-1, dp(230)))
-        body.addView(actionButton("حفظ الذاكرة") {
+        body.addView(editor, LinearLayout.LayoutParams(-1, dp(250)))
+        addGap(body, 10)
+        body.addView(actionButton("حفظ التغييرات") {
             memory = editor.text.toString()
             preferences.edit().putString("memory", memory).apply()
-            Toast.makeText(this, "اتحفظت الذاكرة على الجهاز. أعد تحميل النموذج لتطبيق التغييرات.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "تم حفظ الذاكرة على الجهاز.", Toast.LENGTH_LONG).show()
         })
     }
+
 
     private fun showEngine() {
         currentTab = "engine"
         body.removeAllViews()
         composer.visibility = View.GONE
-        body.addView(label("مركز المحرك المحلي", 22f, foregroundColor, true))
-        body.addView(label("كل عمليات توليد النص تتم على الهاتف بعد تنزيل ملف النموذج. لا يوجد عنوان خادم ولا مفتاح API.", 14f, secondary))
-        body.addView(label("النموذج الحالي", 14f, accent, true))
-        body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foregroundColor, true))
-        body.addView(label("الحجم: حوالي 1.12 جيجابايت. الحد الأدنى المقترح للمساحة الفارغة: 3 جيجابايت.", 13f, gold))
-        body.addView(label("الحالة: ${if (modelReady) "يعمل" else "غير محمّل"}", 14f, if (modelReady) accent else gold, true))
+        body.addView(sectionTitle("مركز الذكاء", "إدارة النموذج المحلي وحالة التشغيل"))
+        val modelCard = panel()
+        modelCard.addView(smallTag(if (modelReady) "ENGINE ONLINE" else "ENGINE OFFLINE", if (modelReady) accent else gold))
+        addGap(modelCard, 10)
+        modelCard.addView(label("Qwen2.5 1.5B Instruct", 19f, foregroundColor, true))
+        modelCard.addView(label("GGUF • Q4_K_M • نموذج لغوي محلي", 12f, secondary))
+        addGap(modelCard, 8)
+        modelCard.addView(label("حجم الملف: 1.12 جيجابايت تقريبًا", 12f, gold))
+        modelCard.addView(label("الحالة: ${if (modelReady) "المحرك يعمل وجاهز للمحادثة" else if (modelDownloading) "جاري تنزيل النموذج" else "النموذج غير محمّل"}", 13f, if (modelReady) accent else gold, true))
         if (modelDownloading) {
-            body.addView(actionButton("التنزيل شغال...") { })
+            addGap(modelCard, 8)
+            modelCard.addView(label("التنزيل مستمر. لا تغلق التطبيق حتى يكتمل.", 12f, secondary))
         } else if (!modelFile().exists()) {
-            val buttonText = if (modelPartFile().exists() && modelPartFile().length() > 0L) "استكمال تنزيل النموذج" else "تحميل النموذج الآن"
-            body.addView(actionButton(buttonText) { startModelDownload() })
+            addGap(modelCard, 10)
+            val buttonText = if (modelPartFile().exists() && modelPartFile().length() > 0L) "استكمال تنزيل النموذج" else "تنزيل النموذج"
+            modelCard.addView(actionButton(buttonText) { startModelDownload() })
         } else if (!modelReady) {
-            body.addView(actionButton("تشغيل النموذج") { loadLocalModel() })
+            addGap(modelCard, 10)
+            modelCard.addView(actionButton("تشغيل المحرك") { loadLocalModel() })
         }
-        body.addView(actionButton("العودة للمحادثة") { showChat() })
-        body.addView(label("تنبيه: هذا إصدار أولي بمحرك محلي واحد. ليس دمجًا لكل نماذج ChatGPT ولا يملك تلقائيًا البحث المباشر أو تحليل الصور والملفات أو التحكم الكامل بالنظام. هذه القدرات تحتاج وحدات منفصلة سنضيفها ونختبرها.", 12f, secondary))
+        body.addView(modelCard)
+        addGap(body, 14)
+        body.addView(sectionTitle("قدرات المنصة", "خطة التطوير — ليست وظائف مفعلة"))
+        val roadmap = listOf(
+            "البحث على الإنترنت" to "يتطلب موصل بحث وخدمة اتصال",
+            "تحليل الصور والملفات" to "يتطلب نماذج رؤية واستخراج مستندات",
+            "تنفيذ مهام الهاتف" to "يتطلب صلاحيات Android وموافقة المستخدم",
+            "الصوت الكامل" to "تحويل كلام ونطق صوتي مع اختيار المحرك"
+        )
+        for ((title, description) in roadmap) {
+            val item = panel()
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(label(title, 14f, foregroundColor, true), LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(smallTag("قيد التطوير", gold))
+            item.addView(row)
+            item.addView(label(description, 11f, secondary))
+            body.addView(item)
+            addGap(body, 8)
+        }
+        body.addView(label("لن يتم تفعيل أي قدرة في الواجهة قبل ربطها بتنفيذ حقيقي واختبارها.", 11f, secondary))
     }
 
     private fun startVoiceInput() {
