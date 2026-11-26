@@ -98,7 +98,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         header.addView(text("SAEED AI", 25f, accent, true))
         header.addView(text("مساعدك الشخصي الذكي", 13f, muted))
-        status = text("جاهز • المحرك السحابي يحتاج مفتاح API", 11f, muted)
+        status = text("جاهز • في انتظار عنوان خادمك الخاص", 11f, muted)
         header.addView(status)
         root.addView(header)
         val divider = View(this).apply { setBackgroundColor(panel) }
@@ -151,7 +151,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         currentTab = "chat"
         resetContent()
         content.addView(text("أهلاً بيك. أنا SAEED AI.", 20f, white, true))
-        content.addView(text("اكتب سؤالك أو استخدم زر الميكروفون. أقدر حاليًا أتواصل مع نموذج Gemini بعد إضافة مفتاح API، وأنفذ مجموعة من أوامر الهاتف المدعومة.", 14f, muted))
+        content.addView(text("اكتب سؤالك أو استخدم الميكروفون. الذكاء هيشتغل من خلال نموذج مفتوح المصدر على خادمك الخاص، من غير مفاتيح Google أو OpenAI. لازم الخادم يكون متاحًا على الشبكة.", 14f, muted))
         for (i in 0 until history.length()) {
             val item = history.optJSONObject(i) ?: continue
             addBubble(item.optString("role"), item.optString("text"))
@@ -190,26 +190,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             speak(local)
             return
         }
-        val key = prefs.getString("api_key", "") ?: ""
-        if (key.isBlank()) {
-            val answer = "علشان أجاوبك بذكاء فعلي، لازم توصيل محرك AI. لسه مفيش مفتاح Gemini API محفوظ. افتح الإعدادات وأضف المفتاح. التطبيق نفسه لا يحتوي نموذجًا محليًا كبيرًا حتى الآن."
+        val serverUrl = prefs.getString("server_url", "") ?: ""
+        val model = prefs.getString("model", "qwen2.5:3b") ?: "qwen2.5:3b"
+        if (serverUrl.isBlank()) {
+            val answer = "لسه عنوان الخادم الخاص مش متحدد. افتح الإعدادات واكتب عنوان خادم SAEED AI اللي عليه النموذج المفتوح المصدر. مفيش أي مفتاح API مطلوب."
             appendHistory("model", answer)
             addBubble("model", answer)
-            status.text = "المحرك غير متصل • أضف مفتاح API من الإعدادات"
+            status.text = "الخادم غير مضبوط • أدخل عنوانه من الإعدادات"
             return
         }
-        status.text = "جاري التفكير..."
-        val loading = text("SAEED AI بيجهز الرد...", 13f, accent)
+        status.text = "جاري الاتصال بالخادم الخاص..."
+        val loading = text("SAEED AI بيجهز الرد من خادمك الخاص...", 13f, accent)
         content.addView(loading)
         worker.execute {
-            val answer = try { askGemini(key, message) } catch (e: Exception) {
-                "حصل خطأ في الاتصال بالمحرك: " + (e.message ?: "خطأ غير معروف")
+            val answer = try { askPrivateServer(serverUrl, model, message) } catch (e: Exception) {
+                "تعذر الاتصال بالخادم الخاص: " + (e.message ?: "خطأ غير معروف") + "\nراجع العنوان وتأكد إن الخادم شغال ويمكن الوصول له من الهاتف."
             }
             runOnUiThread {
                 content.removeView(loading)
                 appendHistory("model", answer)
                 addBubble("model", answer)
-                status.text = "متصل عند الطلب • Gemini"
+                status.text = if (answer.startsWith("تعذر الاتصال")) "الخادم غير متصل" else "متصل بالخادم الخاص"
                 speak(answer)
                 scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
             }
@@ -222,35 +223,33 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         prefs.edit().putString("history", history.toString()).apply()
     }
 
-    private fun askGemini(key: String, prompt: String): String {
-        val model = prefs.getString("model", "gemini-2.5-flash") ?: "gemini-2.5-flash"
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key")
-        val connection = (url.openConnection() as HttpURLConnection).apply {
+    private fun askPrivateServer(serverAddress: String, model: String, prompt: String): String {
+        val base = serverAddress.trim().trimEnd('/')
+        val endpoint = if (base.endsWith("/v1/chat/completions")) base else "$base/v1/chat/completions"
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 20000
-            readTimeout = 60000
+            connectTimeout = 15000
+            readTimeout = 120000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
         }
-        val contents = JSONArray()
+        val messages = JSONArray()
+        val system = "أنت SAEED AI، مساعد شخصي عملي. تحدث باللهجة المصرية الواضحة ما لم يطلب المستخدم غير ذلك. كن دقيقًا، لا تدّع تنفيذ إجراء لم تنفذه، وصرّح بحدود معرفتك. الذاكرة الشخصية المتاحة: $memory"
+        messages.put(JSONObject().put("role", "system").put("content", system))
         val start = maxOf(0, history.length() - 16)
-        var lastRole = ""
-        var lastText = ""
         for (i in start until history.length()) {
             val item = history.optJSONObject(i) ?: continue
-            val role = if (item.optString("role") == "user") "user" else "model"
-            lastRole = role
-            lastText = item.optString("text")
-            contents.put(JSONObject().put("role", role).put("parts", JSONArray().put(JSONObject().put("text", lastText))))
+            val role = if (item.optString("role") == "user") "user" else "assistant"
+            messages.put(JSONObject().put("role", role).put("content", item.optString("text")))
         }
-        if (lastRole != "user" || lastText != prompt) {
-            contents.put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt))))
+        if (history.length() == 0 || history.optJSONObject(history.length() - 1)?.optString("text") != prompt) {
+            messages.put(JSONObject().put("role", "user").put("content", prompt))
         }
-        val system = "أنت SAEED AI، مساعد شخصي عملي. تحدث باللهجة المصرية الواضحة ما لم يطلب المستخدم غير ذلك. كن دقيقًا، لا تدّع تنفيذ إجراء لم تنفذه، وصرّح بحدود معرفتك. الذاكرة الشخصية المتاحة: $memory"
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
-            .put("contents", contents)
-            .put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 2048))
+            .put("model", model)
+            .put("messages", messages)
+            .put("temperature", 0.7)
+            .put("max_tokens", 2048)
         connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         val code = connection.responseCode
         val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -258,8 +257,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         connection.disconnect()
         if (code !in 200..299) throw IllegalStateException("HTTP $code: " + response.take(500))
         val json = JSONObject(response)
-        return json.getJSONArray("candidates").getJSONObject(0)
-            .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+        return json.getJSONArray("choices").getJSONObject(0)
+            .getJSONObject("message").getString("content")
     }
 
     private fun handleLocalCommand(raw: String): String? {
@@ -333,7 +332,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         currentTab = "memory"
         resetContent()
         content.addView(text("ذاكرة SAEED AI", 21f, white, true))
-        content.addView(text("اكتب المعلومات التي تريد من المساعد تذكرها. تُحفظ محليًا على الهاتف وتُضاف إلى سياق المحادثة مع Gemini.", 13f, muted))
+        content.addView(text("اكتب المعلومات التي تريد من المساعد تذكرها. تُحفظ محليًا على الهاتف وتُضاف إلى سياق المحادثة مع نموذجك الخاص.", 13f, muted))
         val editor = EditText(this).apply {
             setText(memory)
             minLines = 8
@@ -362,23 +361,24 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun showSettings() {
         currentTab = "settings"
         resetContent()
-        content.addView(text("إعدادات الذكاء", 21f, white, true))
-        content.addView(text("الاتصال الحالي يستخدم Gemini API. المفتاح يُحفظ في مساحة التطبيق الخاصة على هذا الجهاز، وليس مشفرًا تشفيرًا مستقلًا.", 13f, muted))
-        content.addView(text("مفتاح Gemini API", 14f, accent, true))
-        val keyField = EditText(this).apply {
-            setText(prefs.getString("api_key", ""))
-            hint = "الصق مفتاح API هنا"
-            inputType = 129
+        content.addView(text("إعدادات الخادم الخاص", 21f, white, true))
+        content.addView(text("التطبيق يتصل بخادم تملكه أو تستضيفه أنت ويشغّل نموذجًا مفتوح المصدر. لا توجد مفاتيح API ولا اتصال بمزود ذكاء اصطناعي خارجي. عنوان الخادم وحده مطلوب.", 13f, muted))
+        content.addView(text("عنوان الخادم (Base URL)", 14f, accent, true))
+        val serverField = EditText(this).apply {
+            setText(prefs.getString("server_url", ""))
+            hint = "مثال: http://192.168.1.10:11434"
+            inputType = 17
             setTextColor(white)
             setHintTextColor(muted)
-            textDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
             setPadding(dp(12), dp(10), dp(12), dp(10))
             setBackgroundColor(panel)
         }
-        content.addView(keyField, LinearLayout.LayoutParams(-1, dp(54)))
-        content.addView(text("اسم النموذج", 14f, accent, true))
+        content.addView(serverField, LinearLayout.LayoutParams(-1, dp(54)))
+        content.addView(text("اسم النموذج على الخادم", 14f, accent, true))
         val modelField = EditText(this).apply {
-            setText(prefs.getString("model", "gemini-2.5-flash"))
+            setText(prefs.getString("model", "qwen2.5:3b"))
+            hint = "مثال: qwen2.5:3b"
             setTextColor(white)
             setHintTextColor(muted)
             textDirection = View.TEXT_DIRECTION_LTR
@@ -386,24 +386,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setBackgroundColor(panel)
         }
         content.addView(modelField, LinearLayout.LayoutParams(-1, dp(54)))
-        content.addView(button("حفظ إعدادات المحرك") {
+        content.addView(button("حفظ إعدادات الخادم") {
+            val address = serverField.text.toString().trim().trimEnd('/')
             prefs.edit()
-                .putString("api_key", keyField.text.toString().trim())
-                .putString("model", modelField.text.toString().trim().ifBlank { "gemini-2.5-flash" })
+                .putString("server_url", address)
+                .putString("model", modelField.text.toString().trim().ifBlank { "qwen2.5:3b" })
+                .remove("api_key")
                 .apply()
-            status.text = if (keyField.text.isNullOrBlank()) "المحرك غير متصل" else "تم حفظ إعدادات المحرك"
-            Toast.makeText(this, "تم حفظ الإعدادات.", Toast.LENGTH_SHORT).show()
+            status.text = if (address.isBlank()) "أدخل عنوان الخادم الخاص" else "تم حفظ عنوان الخادم الخاص"
+            Toast.makeText(this, "تم حفظ الإعدادات على الهاتف. لا يوجد مفتاح API.", Toast.LENGTH_SHORT).show()
         })
-        content.addView(button("اختبار الاتصال") {
-            val key = keyField.text.toString().trim()
-            if (key.isBlank()) {
-                Toast.makeText(this, "أضف مفتاح API أولًا.", Toast.LENGTH_SHORT).show()
+        content.addView(button("اختبار اتصال الخادم") {
+            val address = serverField.text.toString().trim()
+            val model = modelField.text.toString().trim().ifBlank { "qwen2.5:3b" }
+            if (address.isBlank()) {
+                Toast.makeText(this, "اكتب عنوان الخادم أولًا.", Toast.LENGTH_SHORT).show()
             } else {
-                status.text = "جاري اختبار الاتصال..."
+                status.text = "جاري اختبار الخادم الخاص..."
                 worker.execute {
                     val result = try {
-                        val test = askGemini(key, "رد بكلمة واحدة: متصل")
-                        "نجح الاتصال: " + test.take(100)
+                        val answer = askPrivateServer(address, model, "رد بكلمة واحدة: متصل")
+                        "نجح الاتصال بالنموذج: " + answer.take(100)
                     } catch (e: Exception) {
                         "فشل الاتصال: " + (e.message ?: "خطأ")
                     }
@@ -414,8 +417,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 }
             }
         })
-        content.addView(text("الصوت: إدخال الكلام يعتمد على خدمة التعرف المثبتة في الهاتف، والإجابة الصوتية تعتمد على محرك Android TTS. لا يوجد استماع دائم في الخلفية.", 12f, muted))
-        content.addView(text("الخصوصية: سجل الدردشة والذاكرة ومفتاح API محفوظة محليًا في مساحة التطبيق. الرسائل التي ترسلها للمحرك تنتقل إلى Google Gemini.", 12f, muted))
+        content.addView(text("واجهة الاتصال متوافقة مع OpenAI Chat Completions API محليًا فقط؛ مثل Ollama أو llama.cpp server عند تشغيل واجهة /v1/chat/completions. لا يتم إرسال Authorization أو أي مفتاح. لا تضع عنوان خادم عام غير موثوق، ويفضل استخدام شبكة خاصة أو VPN.", 12f, muted))
+        content.addView(text("الصوت: إدخال الكلام يعتمد على خدمة التعرف المثبتة في الهاتف، والإجابة الصوتية تعتمد على Android TTS. لا يوجد استماع دائم في الخلفية.", 12f, muted))
+        content.addView(text("الذاكرة وسجل الدردشة محفوظان محليًا داخل التطبيق. محتوى الرسائل ينتقل فقط إلى عنوان الخادم الذي تحدده.", 12f, muted))
     }
 
     override fun onDestroy() {
