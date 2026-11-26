@@ -234,10 +234,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         val contents = JSONArray()
         val start = maxOf(0, history.length() - 16)
+        var lastRole = ""
+        var lastText = ""
         for (i in start until history.length()) {
             val item = history.optJSONObject(i) ?: continue
             val role = if (item.optString("role") == "user") "user" else "model"
-            contents.put(JSONObject().put("role", role).put("parts", JSONArray().put(JSONObject().put("text", item.optString("text")))))
+            lastRole = role
+            lastText = item.optString("text")
+            contents.put(JSONObject().put("role", role).put("parts", JSONArray().put(JSONObject().put("text", lastText))))
+        }
+        if (lastRole != "user" || lastText != prompt) {
+            contents.put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt))))
         }
         val system = "أنت SAEED AI، مساعد شخصي عملي. تحدث باللهجة المصرية الواضحة ما لم يطلب المستخدم غير ذلك. كن دقيقًا، لا تدّع تنفيذ إجراء لم تنفذه، وصرّح بحدود معرفتك. الذاكرة الشخصية المتاحة: $memory"
         val body = JSONObject()
