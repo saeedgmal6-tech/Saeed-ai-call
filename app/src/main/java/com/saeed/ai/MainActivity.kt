@@ -798,7 +798,10 @@ class MainActivity : Activity() {
     @Deprecated("Legacy Android activity result API remains supported")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 43 && resultCode == Activity.RESULT_OK) {\n            importTextDocument(data)\n            return\n        }\n        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
+        if (requestCode == 43 && resultCode == Activity.RESULT_OK) {
+            importTextDocument(data)
+            return
+        }\n        if (requestCode == 42 && resultCode == Activity.RESULT_OK) {
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
                 input.setText(spoken)
