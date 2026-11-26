@@ -43,12 +43,12 @@ import java.util.Locale
 
 class MainActivity : Activity() {
 
-    private val background = Color.rgb(8, 13, 22)
+    private val backgroundColor = Color.rgb(8, 13, 22)
     private val surface = Color.rgb(18, 27, 42)
     private val surfaceLight = Color.rgb(26, 39, 57)
     private val accent = Color.rgb(70, 226, 197)
     private val gold = Color.rgb(224, 184, 105)
-    private val foreground = Color.rgb(240, 245, 250)
+    private val foregroundColor = Color.rgb(240, 245, 250)
     private val secondary = Color.rgb(151, 168, 186)
     private val preferences by lazy { getSharedPreferences("saeed_ai_local", MODE_PRIVATE) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -81,8 +81,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = background
-        window.navigationBarColor = background
+        window.statusBarColor = backgroundColor
+        window.navigationBarColor = backgroundColor
         window.decorView.systemUiVisibility = 0
         history = try {
             JSONArray(preferences.getString("history", "[]"))
@@ -105,7 +105,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun label(value: String, size: Float = 14f, color: Int = foreground, bold: Boolean = false): TextView {
+    private fun label(value: String, size: Float = 14f, color: Int = foregroundColor, bold: Boolean = false): TextView {
         return TextView(this).apply {
             text = value
             textSize = size
@@ -121,7 +121,7 @@ class MainActivity : Activity() {
         return TextView(this).apply {
             text = value
             textSize = 14f
-            setTextColor(if (value.contains("تحميل")) background else foreground)
+            setTextColor(if (value.contains("تحميل")) backgroundColor else foregroundColor)
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
             background = rounded(if (value.contains("تحميل")) accent else surfaceLight, 14)
@@ -133,7 +133,7 @@ class MainActivity : Activity() {
     private fun buildShell() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(backgroundColor)
             setPadding(dp(16), dp(10), dp(16), dp(8))
         }
 
@@ -184,7 +184,7 @@ class MainActivity : Activity() {
         input = EditText(this).apply {
             hint = "اكتب رسالتك إلى SAEED AI..."
             textSize = 15f
-            setTextColor(foreground)
+            setTextColor(foregroundColor)
             setHintTextColor(secondary)
             maxLines = 4
             minLines = 1
@@ -209,6 +209,10 @@ class MainActivity : Activity() {
         navigation.addView(actionButton("المحرك") { showEngine() }, LinearLayout.LayoutParams(0, dp(44), 1f))
         root.addView(navigation)
         setContentView(root)
+    }
+
+    private fun showSettings() {
+        showEngine()
     }
 
     private fun inspectModel() {
@@ -237,7 +241,7 @@ class MainActivity : Activity() {
             background = rounded(surface, 24)
             setPadding(dp(18), dp(20), dp(18), dp(20))
         }
-        hero.addView(label("ذكاء اصطناعي خاص بيك.", 23f, foreground, true))
+        hero.addView(label("ذكاء اصطناعي خاص بيك.", 23f, foregroundColor, true))
         hero.addView(label("مش مجرد واجهة شات. المحرك هيشتغل محليًا على موبايلك، من غير مفاتيح API أو إرسال محادثاتك لمزود ذكاء اصطناعي.", 14f, secondary))
         hero.addView(label("الموديل: Qwen 1.5B Instruct • Q4_K_M", 12f, accent, true))
         hero.addView(label("حجم التنزيل قرابة 986 ميجابايت. التنزيل مضبوط على Wi-Fi لتجنب استهلاك باقة الموبايل.", 12f, gold))
@@ -409,7 +413,7 @@ class MainActivity : Activity() {
         val bubble = TextView(this).apply {
             text = (if (user) "أنت" else "SAEED AI") + if (value.isBlank()) "" else "\n$value"
             textSize = 15f
-            setTextColor(foreground)
+            setTextColor(foregroundColor)
             textDirection = View.TEXT_DIRECTION_RTL
             gravity = Gravity.RIGHT
             setPadding(dp(15), dp(12), dp(15), dp(12))
@@ -430,7 +434,7 @@ class MainActivity : Activity() {
             showModelWelcome()
             return
         }
-        body.addView(label("مساحة المحادثة الخاصة", 20f, foreground, true))
+        body.addView(label("مساحة المحادثة الخاصة", 20f, foregroundColor, true))
         for (i in 0 until history.length()) {
             val item = history.optJSONObject(i) ?: continue
             addBubble(item.optString("role"), item.optString("text"))
@@ -444,14 +448,14 @@ class MainActivity : Activity() {
         currentTab = "memory"
         body.removeAllViews()
         composer.visibility = View.GONE
-        body.addView(label("الذاكرة الشخصية", 22f, foreground, true))
+        body.addView(label("الذاكرة الشخصية", 22f, foregroundColor, true))
         body.addView(label("المعلومات التي تكتبها هنا تُحفظ على الهاتف وتدخل في تعليمات المحرك عند تحميله.", 13f, secondary))
         val editor = EditText(this).apply {
             setText(memory)
             minLines = 8
             gravity = Gravity.TOP or Gravity.RIGHT
             textDirection = View.TEXT_DIRECTION_RTL
-            setTextColor(foreground)
+            setTextColor(foregroundColor)
             setHintTextColor(secondary)
             hint = "تفضيلاتك ومعلوماتك المهمة..."
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -469,10 +473,10 @@ class MainActivity : Activity() {
         currentTab = "engine"
         body.removeAllViews()
         composer.visibility = View.GONE
-        body.addView(label("مركز المحرك المحلي", 22f, foreground, true))
+        body.addView(label("مركز المحرك المحلي", 22f, foregroundColor, true))
         body.addView(label("كل عمليات توليد النص تتم على الهاتف بعد تنزيل ملف النموذج. لا يوجد عنوان خادم ولا مفتاح API.", 14f, secondary))
         body.addView(label("النموذج الحالي", 14f, accent, true))
-        body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foreground, true))
+        body.addView(label("Qwen2.5 1.5B Instruct • GGUF • Q4_K_M", 16f, foregroundColor, true))
         body.addView(label("الحجم: حوالي 986 ميجابايت. الحد الأدنى المقترح للمساحة الفارغة: 2 جيجابايت.", 13f, gold))
         body.addView(label("الحالة: ${if (modelReady) "يعمل" else "غير محمّل"}", 14f, if (modelReady) accent else gold, true))
         if (!modelFile().exists() && downloadId <= 0L) {
