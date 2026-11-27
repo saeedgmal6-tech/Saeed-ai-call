@@ -24,6 +24,8 @@ import android.widget.TextView
 import android.widget.Toast
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
+import com.arm.aichat.UnsupportedArchitectureException
+import com.arm.aichat.gguf.GgufMetadataReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -573,6 +575,7 @@ class MainActivity : Activity() {
         statusText.text = "جاري تهيئة محرك الذكاء المحلي..."
         progressBar.visibility = View.VISIBLE
         scope.launch(Dispatchers.IO) {
+            var modelDiagnostics = "لم تُقرأ بيانات النموذج بعد"
             try {
                 if (!engineCreated) {
                     engine = AiChat.getInferenceEngine(applicationContext)
@@ -603,8 +606,15 @@ class MainActivity : Activity() {
                 if (!magic.contentEquals(byteArrayOf(0x47, 0x47, 0x55, 0x46))) {
                     throw IllegalStateException("ملف النموذج تالف أو ليس بصيغة GGUF.")
                 }
+                val metadata = GgufMetadataReader.create().readStructuredMetadata(FileInputStream(file))
+                val architecture = metadata.architecture?.architecture ?: "غير محدد"
+                val ggufVersion = metadata.version.toString()
+                modelDiagnostics = "البنية: $architecture • GGUF: $ggufVersion • الحجم: ${file.length()} بايت • الموترات: ${metadata.tensorCount}"
+                if (architecture != "qwen2") {
+                    throw IllegalStateException("بنية النموذج غير متوقعة: $architecture. المتوقع qwen2. $modelDiagnostics")
+                }
                 withContext(Dispatchers.Main) {
-                    statusText.text = "جاري تحميل النموذج إلى الذاكرة..."
+                    statusText.text = "تم فحص GGUF ($architecture) • جاري تحميل النموذج..."
                 }
                 engine.loadModel(file.absolutePath)
                 engine.setSystemPrompt(
@@ -620,7 +630,11 @@ class MainActivity : Activity() {
             } catch (error: Throwable) {
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    val detail = error.message ?: error.javaClass.simpleName
+                    val detail = if (error is UnsupportedArchitectureException) {
+                        "المحرك رفض تحميل ملف النموذج من llama_model_load_from_file. هذا الخطأ في المكتبة اسم عام ولا يثبت أن معالج الهاتف غير مدعوم. $modelDiagnostics"
+                    } else {
+                        "${error.javaClass.simpleName}: ${error.message ?: "لا توجد تفاصيل"}. $modelDiagnostics"
+                    }
                     statusText.text = "تعذر تشغيل النموذج: $detail"
                     Toast.makeText(this@MainActivity, statusText.text, Toast.LENGTH_LONG).show()
                     showEngine()
