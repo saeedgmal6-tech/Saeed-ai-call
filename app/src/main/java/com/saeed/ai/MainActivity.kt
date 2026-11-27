@@ -670,8 +670,12 @@ class MainActivity : Activity() {
                         "أجب اعتمادًا على نتائج البحث التالية، واذكر عناوين المصادر وروابطها، ولا تخترع تفاصيل.\n\nسؤال المستخدم: $prompt\n\nنتائج البحث:\n$sources"
                     }
                 } else prompt
+
+                // Refresh system instructions and recent conversation before every turn.
+                engine.setSystemPrompt(buildSystemPrompt())
+
                 val response = StringBuilder()
-                engine.sendUserPrompt(effectivePrompt, 512).collect { token ->
+                engine.sendUserPrompt(effectivePrompt, 768).collect { token ->
                     response.append(token)
                     withContext(Dispatchers.Main) {
                         responseBubble.text = "SAEED AI\n" + response.toString()
@@ -691,6 +695,34 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun buildSystemPrompt(): String {
+        val context = StringBuilder()
+        val start = (history.length() - 13).coerceAtLeast(0)
+        val endExclusive = (history.length() - 1).coerceAtLeast(start)
+        for (index in start until endExclusive) {
+            val item = history.optJSONObject(index) ?: continue
+            val role = if (item.optString("role") == "user") "المستخدم" else "المساعد"
+            val message = item.optString("text").trim()
+            if (message.isNotBlank()) {
+                context.append(role).append(": ").append(message).append("\n")
+            }
+        }
+
+        return """
+            أنت SAEED AI، مساعد عام متعدد الاستخدامات. أجب عن الأسئلة العادية مباشرة ولا ترفضها بلا سبب.
+            تحدث بالعربية المصرية الطبيعية عندما يكتب المستخدم بالعربية، وغيّر اللغة حسب لغة المستخدم.
+            اشرح الموضوعات المعقدة ببساطة، وساعد في الكتابة والتحليل والبرمجة والتخطيط.
+            كن دقيقًا وصريحًا. لا تخترع حقائق أو مصادر أو نتائج بحث، ولا تدّع تنفيذ إجراء لم تنفذه.
+            إذا كان الطلب غير واضح فاسأل سؤالًا واحدًا محددًا. ارفض فقط الطلبات الضارة بوضوح، وقدّم بديلًا آمنًا.
+
+            ذاكرة المستخدم:
+            ${memory.takeLast(6000).ifBlank { "لا توجد معلومات محفوظة." }}
+
+            سياق المحادثة السابقة (الأحدث في الأسفل):
+            ${context.toString().takeLast(10000).ifBlank { "هذه بداية المحادثة." }}
+        """.trimIndent()
     }
 
     private fun searchWebWithoutKey(query: String): String {
